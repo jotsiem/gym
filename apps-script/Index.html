@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+
+<style>
+  :root {
+    --hdr:#0f1115; --hdr-ink:#ffffff; --hdr-mute:#a3abb8;
+    --bg:#f3f4f6; --card:#ffffff; --ink:#15181d; --mute:#6b7280; --line:#e5e7eb;
+    --acc:#2f5fd0; --acc2:#e9effd; --ok:#1f9d55; --ok2:#e3f5ea; --warn:#c2410c; --warn2:#fdeee4; --bad:#c81e1e; --bad2:#fde8e8;
+    --navh:56px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b0d10; --card:#171a20; --ink:#eef0f3; --mute:#9aa3af; --line:#272c34;
+            --acc:#6d95ff; --acc2:#1d2740; --ok:#3ccf7c; --ok2:#123222; --warn:#fb923c; --warn2:#3a2414; --bad:#f87171; --bad2:#3b1717; }
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html { background:var(--bg); -webkit-text-size-adjust:100%; }
+  body { margin:0; min-height:100vh; overflow-x:hidden; font:16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+         background:var(--bg); color:var(--ink); overscroll-behavior-y:none; }
+  /* ---------- cabecera oscura (también cubre la zona de la hora y la batería) ---------- */
+  header { position:sticky; top:0; z-index:10; background:var(--hdr); color:var(--hdr-ink);
+           padding:calc(env(safe-area-inset-top) + 8px) max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
+           display:grid; grid-template-columns:88px 1fr 88px; align-items:center; min-height:52px; }
+  header h1 { grid-column:2; font-size:17px; font-weight:700; margin:0; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  header .sub { display:block; font-size:11px; font-weight:500; color:var(--hdr-mute); text-align:center; }
+  .hbtn { background:transparent; color:var(--hdr-ink); padding:8px 6px; font-size:16px; font-weight:600; border-radius:10px; min-height:40px; }
+  .hbtn.l { justify-self:start; display:flex; align-items:center; gap:2px; }
+  .hbtn.r { justify-self:end; color:#9fb8ff; }
+  .hbtn svg { width:22px; height:22px; }
+  main { padding:8px max(12px, env(safe-area-inset-right)) calc(var(--navh) + env(safe-area-inset-bottom) + 24px) max(12px, env(safe-area-inset-left)); }
+  body.timer-on main { padding-bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 96px); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin:10px 0; }
+  .row { display:flex; align-items:center; gap:8px; }
+  .mute { color:var(--mute); font-size:13px; }
+  button { font:inherit; border:0; border-radius:12px; padding:12px 14px; background:var(--acc2); color:var(--acc); font-weight:600; cursor:pointer; touch-action:manipulation; }
+  button.prim { background:var(--acc); color:#fff; }
+  button.ghost { background:transparent; color:var(--mute); padding:10px 8px; }
+  button.danger { background:transparent; color:var(--bad); }
+  button.dangerfill { background:var(--bad); color:#fff; }
+  button.step { width:56px; height:56px; font-size:26px; padding:0; }
+  button:active { filter:brightness(.92); }
+  .ok { width:100%; height:60px; font-size:19px; margin-top:12px; }
+  .pair { display:flex; gap:10px; margin-top:14px; }
+  .pair button { flex:1; height:52px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+  .chip { padding:9px 14px; border-radius:99px; border:1px solid var(--line); background:var(--card); color:var(--ink); font-weight:500; }
+  .chip.on { background:var(--acc); color:#fff; border-color:var(--acc); }
+  .ex { padding:12px 14px; }
+  .ex .t { font-weight:600; flex:1; }
+  .ex.cur { border-color:var(--acc); box-shadow:0 0 0 2px var(--acc2); }
+  .ex.done .t { color:var(--mute); }
+  .ex.done .badge { background:var(--ok2); color:var(--ok); }
+  .badge { font-size:12px; font-weight:700; padding:3px 8px; border-radius:99px; background:var(--bg); color:var(--mute); }
+  .sets { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+  .set { font-size:13px; padding:4px 8px; border-radius:8px; background:var(--bg); border:1px solid var(--line); }
+  .set.p { border-style:dashed; }
+  .ctrl { display:flex; align-items:center; justify-content:space-between; margin:6px 0; }
+  .val { flex:1; display:flex; flex-direction:column; align-items:center; }
+  .val input { width:110px; font-size:30px; font-weight:700; text-align:center; border:0; background:transparent; color:var(--ink); }
+  .val small { color:var(--mute); font-size:12px; }
+  .hint { margin-top:10px; width:100%; text-align:left; }
+  .foot { display:flex; gap:10px; margin:14px 0 6px; }
+  .foot button { flex:1; height:52px; }
+  .lnk { display:block; width:100%; text-align:center; margin:4px 0 8px; }
+  /* ---------- barra de navegación inferior (estilo tab bar iOS: 56 px + zona del indicador de inicio) ---------- */
+  nav { position:fixed; bottom:0; left:0; right:0; z-index:10; display:flex; background:var(--card); border-top:1px solid var(--line);
+        height:calc(var(--navh) + env(safe-area-inset-bottom)); padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  nav button { flex:1; background:transparent; color:var(--mute); padding:6px 4px 4px; border-radius:0; display:flex; flex-direction:column;
+               align-items:center; justify-content:flex-start; gap:3px; font-size:11px; font-weight:600; height:var(--navh); }
+  nav button svg { width:26px; height:26px; }
+  nav button.on { color:var(--acc); }
+  /* ---------- cronómetro de descanso ---------- */
+  #timer { position:fixed; z-index:9; left:max(12px, env(safe-area-inset-left)); right:max(12px, env(safe-area-inset-right));
+           bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 10px); display:none; align-items:center; gap:10px;
+           background:var(--hdr); color:#fff; border-radius:16px; padding:10px 10px 10px 16px; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+  body.timer-on #timer { display:flex; }
+  #timer .tt { flex:1; min-width:0; }
+  #timer .lbl { font-size:12px; color:var(--hdr-mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #timer .clk { font-size:30px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:.5px; line-height:1.1; }
+  #timer.mid .clk { color:#ffd166; }
+  #timer.long .clk { color:#ff8a65; }
+  #timer button { background:rgba(255,255,255,.12); color:#fff; height:44px; padding:0 14px; }
+  /* ---------- hojas modales, avisos ---------- */
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-end; z-index:30; }
+  .modal.on { display:flex; }
+  .sheet { background:var(--card); width:100%; max-height:88vh; overflow:auto; border-radius:18px 18px 0 0;
+           padding:18px max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .sheet h3 { margin:0 0 6px; font-size:19px; }
+  input[type=search], input[type=text], select { width:100%; font:inherit; font-size:17px; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--ink); }
+  label.f { display:block; margin:10px 0 4px; color:var(--mute); font-size:13px; }
+  .li { padding:12px 4px; border-bottom:1px solid var(--line); }
+  .toast { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 16px); z-index:40;
+           background:var(--ink); color:var(--bg); padding:11px 16px; border-radius:12px; font-size:15px; font-weight:600; display:none; max-width:90vw; text-align:center; }
+  body.timer-on .toast { bottom:calc(var(--navh) + env(safe-area-inset-bottom) + 96px); }
+  .toast.ok { background:var(--ok); color:#fff; }
+  .toast.err { background:var(--bad); color:#fff; }
+  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:99px; font-weight:700; margin-top:2px; }
+  .pill.pend { background:#ffedd5; color:#9a3412; }
+  .pill.sync { background:rgba(255,255,255,.12); color:var(--hdr-mute); }
+  canvas { max-width:100%; }
+  .loading { text-align:center; padding:60px 0; color:var(--mute); }
+  .mini { background:transparent; color:var(--mute); padding:2px 8px; font-size:20px; line-height:1; border-radius:8px; }
+  .nota { margin-top:8px; padding:8px 10px; border-radius:10px; background:var(--warn2); color:var(--ink); font-size:14px; white-space:pre-wrap; }
+  .nota.vacia { background:transparent; color:var(--mute); padding:4px 0; font-size:13px; }
+  .set.pr { border-color:#d4a106; background:#fff7d6; color:#7a5a00; }
+  @media (prefers-color-scheme: dark) { .set.pr { background:#3a3010; color:#ffd166; } }
+  .aviso { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 0; border-top:1px solid var(--line); }
+  .aviso:first-of-type { border-top:0; }
+  .dias { font-weight:700; color:var(--warn); }
+  .stat { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0; }
+  .stat div { background:var(--bg); border-radius:12px; padding:10px; }
+  .stat b { display:block; font-size:20px; }
+  .up { color:var(--ok); } .down { color:var(--bad); }
+  textarea { width:100%; min-height:110px; font:inherit; font-size:16px; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--ink); }
+  .hero { font-size:28px; font-weight:800; margin:4px 0 10px; }
+  .banner { border-radius:12px; padding:12px; margin:10px 0; font-size:14px; }
+  .banner.ok { background:var(--ok2); color:var(--ok); }
+  /* ---------- solo vertical: en horizontal se pide girar el móvil ---------- */
+  #girar { display:none; }
+  @media (orientation: landscape) and (max-height: 520px) {
+    #girar { display:flex; position:fixed; inset:0; z-index:100; background:var(--hdr); color:#fff; flex-direction:column; align-items:center; justify-content:center; gap:12px; font-weight:600; }
+    #girar svg { width:56px; height:56px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div id="hL"></div>
+  <h1><span id="titulo">Gym</span><span class="sub" id="hSub"></span></h1>
+  <div id="hR" style="justify-self:end"></div>
+</header>
+<main id="app"><div class="loading">Cargando…</div></main>
+
+<div id="timer">
+  <div class="tt"><div class="lbl" id="tLbl">Descanso</div><div class="clk" id="tClk">0:00</div></div>
+  <button onclick="reiniciarDescanso()" aria-label="Reiniciar">↺</button>
+  <button onclick="pararDescanso()" aria-label="Parar cronómetro">✕</button>
+</div>
+
+<nav>
+  <button id="nHoy" class="on" onclick="ir('hoy')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 7v10M3 9v6M18 7v10M21 9v6M6 12h12"/></svg>Entreno</button>
+  <button id="nProg" onclick="ir('prog')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M4 16l5-5 4 3 7-8"/></svg>Progreso</button>
+  <button id="nHist" onclick="ir('hist')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>Historial</button>
+</nav>
+
+<div class="modal" id="modal" onclick="if(event.target===this && !this.dataset.fijo)cerrar()"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+<div id="girar"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>Gira el móvil a vertical</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script><?!= predSource() ?></script>
+<script>
+// ============================================================ conexión con el servidor
+// Modo 'gas': la página la sirve Apps Script (google.script.run).
+// Modo 'api': la página está alojada fuera (GitHub Pages) y llama a la API de Apps Script con fetch.
+var MODO = (typeof google !== 'undefined' && google.script && google.script.run) ? 'gas' : 'api';
+var K_CONEX = 'gym_conexion_v1', K_COLA = 'gym_cola_v1', K_EST = 'gym_estado_v1', K_DESC = 'gym_descanso_v1', K_CERR = 'gym_cerradas_v2';   // K_CERR: ids de sesión cerradas
+
+function lsGet(k, def) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function conexion() { return lsGet(K_CONEX, {}); }
+(function leerHash() {
+  var h = location.hash || '', k = /[#&]key=([^&]+)/.exec(h), u = /[#&]api=([^&]+)/.exec(h);
+  if (!k && !u) return;
+  var c = conexion(); if (k) c.key = decodeURIComponent(k[1]); if (u) c.url = decodeURIComponent(u[1]); lsSet(K_CONEX, c);
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+})();
+function apiUrl() { return conexion().url || window.GYM_API_URL || ''; }
+
+function call(fn, args) {
+  return new Promise(function (res, rej) {
+    var req = { fn: fn, args: args || [], key: conexion().key || '' };
+    if (MODO === 'gas') { google.script.run.withSuccessHandler(res).withFailureHandler(rej).rpc(req); return; }
+    if (!apiUrl()) { rej(new Error('SIN_URL')); return; }
+    fetch(apiUrl(), { method: 'POST', body: JSON.stringify(req) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j.ok) res(j.result); else rej(new Error(j.error || 'Error del servidor')); })
+      .catch(function (e) { rej(new Error(navigator.onLine === false ? 'SIN_RED' : (e.message || 'Error de red'))); });
+  });
+}
+function run(fn, args, ok, ko) {
+  call(fn, args).then(ok, function (e) {
+    var m = String(e && e.message || e);
+    if (/CLAVE|SIN_URL/.test(m)) return pantallaConexion(m);
+    if (ko) return ko(e);
+    toast(m === 'SIN_RED' ? 'Sin conexión' : 'Error: ' + m, 'err');
+  });
+}
+
+// ============================================================ estado
+var E = null;
+var S = { vista: 'hoy', sesion: null, rutina: null, lista: [], cur: null, form: {}, tramo: 1, variante: {} };
+var GRUPOS = ['Pecho','Espalda','Hombro','Bíceps','Tríceps','Antebrazo','Cuádriceps','Isquios','Glúteo','Aductor','Gemelo','Abdomen'];
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function n2(x) { return x == null || x === '' ? '' : String(Math.round(x * 100) / 100).replace('.', ','); }
+function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : ''; }
+function toast(t, tipo) { var e = $('toast'); e.textContent = t; e.className = 'toast ' + (tipo || ''); e.style.display = 'block'; clearTimeout(e._t); e._t = setTimeout(function () { e.style.display = 'none'; }, tipo === 'err' ? 3500 : 1800); }
+function ej(id) { return (E && E.ejercicios.filter(function (x) { return x.id === id; })[0]) || { id: id, nombre: id, tipoCarga: 'total', equipo: '' }; }
+function vibrar(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+// ============================================================ arranque
+function cargar(silencioso) {
+  var cache = lsGet(K_EST, null);
+  if (!E && cache && cache.hoy === hoyLocal()) { E = cache; tomarEstado(); }
+  run('getEstado', [], function (e) { E = e; lsSet(K_EST, e); tomarEstado(); vaciarCola(); },
+      function (err) { if (!E) $('app').innerHTML = '<div class="card">No se ha podido cargar. ' + esc(err.message) + '<button class="prim ok" onclick="cargar()">Reintentar</button></div>'; else toast('Sin conexión: usando los datos guardados', 'err'); });
+}
+function kDia() { return 'gym_dia_' + (S.sesion || 'S' + (E ? E.hoy : hoyLocal())); }
+// ---- varias sesiones al día: S2026-11-01, S2026-11-01-2, …
+function cerradas() { var c = lsGet(K_CERR, []); return Array.isArray(c) ? c.slice(-30) : []; }
+function sesionesConSeries() { var ids = []; E.hoySets.forEach(function (x) { if (x.sesion && ids.indexOf(x.sesion) < 0) ids.push(x.sesion); }); return ids; }
+function sesionAbierta() { var ids = sesionesConSeries(), c = cerradas(); for (var i = ids.length - 1; i >= 0; i--) if (c.indexOf(ids[i]) < 0) return ids[i]; return null; }
+function nuevaSesionId() {
+  var base = 'S' + E.hoy, usados = sesionesConSeries().concat((E.sesionesHoy || []).map(function (s) { return s.id; })).concat(cerradas());
+  if (usados.indexOf(base) < 0) return base;
+  var max = 1; usados.forEach(function (id) { var m = /-(\d+)$/.exec(id.slice(base.length)); if (id.indexOf(base) === 0 && m) max = Math.max(max, +m[1]); });
+  return base + '-' + (max + 1);
+}
+function rutinaDe(sid) { var s = (E.sesionesHoy || []).filter(function (x) { return x.id === sid; })[0]; return lsGet('gym_rutina_' + sid, (s && s.tipo) || 'Libre'); }
+function tipoDe(sid) { var s = (E.ultimasSesiones || []).filter(function (x) { return x.id === sid; })[0]; return (s && s.tipo) || lsGet('gym_rutina_' + sid, ''); }
+function dia() { return lsGet(kDia(), {}); }
+function setDia(d) { lsSet(kDia(), d); }
+function hoyLocal() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function tomarEstado() {
+  // series en cola (sin enviar) que el servidor aún no conoce
+  cola().forEach(function (s) {
+    if (s.op === 'cerrar') return;
+    if (s.fecha === E.hoy && !E.hoySets.some(function (x) { return x.clientId === s.clientId; }))
+      E.hoySets.push({ clientId: s.clientId, sesion: s.sesion || 'S' + s.fecha, ej: s.ej, peso: s.peso === '' ? null : s.peso, reps: s.reps, tramo: s.tramo, tipo: s.tipo, variante: s.variante, pending: true });
+  });
+  if (!S.rutina) { var ab = sesionAbierta(); if (ab) { S.sesion = ab; S.rutina = rutinaDe(ab); montarLista(); } }
+  else montarLista();
+  pintar();
+}
+window.addEventListener('online', function () { vaciarCola(); });
+document.addEventListener('visibilitychange', function () { if (!document.hidden) { tickDescanso(); vaciarCola(); } });
+
+// ============================================================ cola sin conexión
+var enviando = false;
+function cola() { return lsGet(K_COLA, []); }
+function setCola(c) { lsSet(K_COLA, c); pintarCabecera(); }
+function vaciarCola() {
+  var c = cola(); if (!c.length || enviando) { pintarCabecera(); return; }
+  enviando = true; pintarCabecera();
+  var s = c[0];
+  var peticion = s.op === 'cerrar' ? call('cerrarSesion', [s.sesion || s.fecha, s.datos]) : call('guardarSerie', [s]);
+  peticion.then(function (r) {
+    enviando = false;
+    var x = E && E.hoySets.filter(function (h) { return h.clientId === s.clientId; })[0];
+    if (x) { x.id = r.id; x.pending = false; x.serie = r.serie; if (r.sesion) x.sesion = r.sesion; }
+    setCola(cola().filter(function (q) { return q.clientId !== s.clientId; }));
+    if (S.vista === 'hoy') pintar(); vaciarCola();
+  }, function (e) {
+    enviando = false; pintarCabecera();
+    var m = String(e.message || e);
+    if (/CLAVE|SIN_URL/.test(m)) return pantallaConexion(m);
+    setTimeout(vaciarCola, 15000);
+  });
+}
+
+// ============================================================ cronómetro de descanso
+var tInt = null;
+function descanso() { return lsGet(K_DESC, null); }
+function iniciarDescanso(info) { lsSet(K_DESC, { inicio: Date.now(), info: info }); tickDescanso(); }
+function reiniciarDescanso() { var d = descanso(); if (!d) return; d.inicio = Date.now(); lsSet(K_DESC, d); tickDescanso(); vibrar(15); }
+function pararDescanso() { lsSet(K_DESC, null); tickDescanso(); }
+function segDescanso() { var d = descanso(); return d ? Math.max(0, Math.floor((Date.now() - d.inicio) / 1000)) : null; }
+function mmss(s) { return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+function tickDescanso() {
+  var d = descanso(), s = segDescanso();
+  if (d && s > 3600) { lsSet(K_DESC, null); d = null; }
+  document.body.classList.toggle('timer-on', !!d);
+  if (!d) { clearInterval(tInt); tInt = null; return; }
+  $('tClk').textContent = mmss(s); $('tLbl').textContent = 'Descanso · ' + (d.info || '');
+  $('timer').className = s >= 180 ? 'long' : (s >= 120 ? 'mid' : '');
+  if (!tInt) tInt = setInterval(tickDescanso, 1000);
+  // si el ajuste por descanso cambia mientras esperas (y no has tocado los valores), se actualiza la sugerencia
+  if (E && E.modeloDescanso && S.vista === 'hoy' && S.rutina && S.cur && S.tramo === 1 && S.form.auto && efectivasHoy(S.cur).length &&
+      ajusteDescanso(E.modeloDescanso, s) !== S.form.adj) { prepararForm(); pintar(); }
+}
+
+// ============================================================ lista del día
+function montarLista() {
+  var d = dia();
+  if (!d.lista) { d.lista = (E.rutinas[S.rutina] || []).map(function (r) { return r.ej; }); setDia(d); }
+  var ids = d.lista.slice();
+  var mias = setsSesion();
+  mias.forEach(function (x) { if (ids.indexOf(x.ej) < 0) ids.push(x.ej); });
+  var hechos = []; mias.forEach(function (x) { if (hechos.indexOf(x.ej) < 0) hechos.push(x.ej); });
+  S.lista = hechos.concat(ids.filter(function (i) { return hechos.indexOf(i) < 0; }));
+  if (!S.cur || S.lista.indexOf(S.cur) < 0) S.cur = siguientePendiente() || S.lista[0];
+  prepararForm();
+}
+function setsHoy(id) { return E.hoySets.filter(function (x) { return x.ej === id && x.sesion === S.sesion; }); }
+function setsSesion() { return E.hoySets.filter(function (x) { return x.sesion === S.sesion; }); }
+function efectivasHoy(id) { return setsHoy(id).filter(function (x) { return x.tramo === 1 && x.tipo !== 'calentamiento'; }); }
+function objetivo(id) {
+  var h = E.historial[id], L = h && h.length ? h[h.length - 1] : null;
+  var r = (E.rutinas[S.rutina] || []).filter(function (x) { return x.ej === id; })[0];
+  return L ? L.sets.length : (r ? r.series : 3);
+}
+function siguientePendiente() {
+  for (var i = 0; i < S.lista.length; i++) if (efectivasHoy(S.lista[i]).length < objetivo(S.lista[i])) return S.lista[i];
+  return null;
+}
+function prepararForm() {
+  var id = S.cur; if (!id) return;
+  var e = ej(id), hoy = efectivasHoy(id).map(function (x) { return { peso: x.peso, reps: x.reps }; });
+  var p = sugerirSerie(E.historial[id] || [], hoy, hoy.length + 1, { repsMin: e.repsMin, repsMax: e.repsMax });
+  var adj = hoy.length ? ajusteDescanso(E.modeloDescanso, segDescanso()) : 0;
+  if (adj && p.reps) { p.reps = Math.max(1, p.reps + adj); p.motivo += ' · ' + (adj > 0 ? '+' : '') + adj + ' por el descanso'; }
+  S.form = { peso: p.peso, reps: p.reps, motivo: p.motivo, auto: true, adj: adj };
+  S.prog = hoy.length === 0 ? sugerirProgresion(E.historial[id] || [], { repsMax: e.repsMax, incremento: E.cfg.incremento }) : null;
+  S.tramo = 1;
+  if (!S.variante[id]) {
+    var u = E.hoySets.slice().reverse().filter(function (x) { return x.ej === id && x.variante; })[0];
+    S.variante[id] = u ? u.variante : '';
+  }
+}
+
+// ============================================================ pintar
+var ICON_ATRAS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>';
+function cabecera(titulo, izq, der) {
+  $('titulo').textContent = titulo;
+  $('hL').innerHTML = izq || ''; $('hR').innerHTML = der || '';
+  pintarCabecera();
+}
+function pintarCabecera() {
+  var n = cola().length, el = $('hSub');
+  if (!el) return;
+  el.innerHTML = n ? '<span class="pill pend">' + (enviando ? 'Guardando… ' : '') + n + ' sin enviar</span>' : (enviando ? '<span class="pill sync">Guardando…</span>' : '');
+}
+function ir(v) {
+  S.vista = v;
+  ['hoy', 'prog', 'hist'].forEach(function (k) { $({ hoy: 'nHoy', prog: 'nProg', hist: 'nHist' }[k]).className = k === v ? 'on' : ''; });
+  window.scrollTo(0, 0); pintar();
+}
+function pintar() {
+  if (!E) return;
+  tickDescanso();
+  if (S.vista === 'ajustes') return pintarAjustes();
+  if (S.vista === 'hoy') return S.rutina ? pintarSesion() : pintarInicio();
+  if (S.vista === 'prog') return pintarProgreso();
+  if (S.vista === 'hist') return pintarHistorial();
+}
+
+function pintarInicio() {
+  cabecera('Entreno', '', '<button class="hbtn r" onclick="ir(\'ajustes\')" aria-label="Ajustes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>');
+  var opts = E.cfg.rotacion.concat(['Pierna', 'Libre']).filter(function (o, i, a) { return a.indexOf(o) === i; });
+  var sel = S.elegida || E.siguiente;
+  var ab = sesionAbierta(), c = cerradas(), h = '';
+  var nSeries = function (sid) { return E.hoySets.filter(function (x) { return x.sesion === sid && x.tramo === 1; }).length; };
+  sesionesConSeries().filter(function (sid) { return c.indexOf(sid) >= 0; }).forEach(function (sid) {
+    h += '<div class="banner ok">✓ ' + esc(tipoDe(sid) || 'Sesión') + ' de hoy guardada (' + nSeries(sid) + ' series).</div>';
+  });
+  var hechas = ab ? nSeries(ab) : 0, cerrada = !ab;
+  if (ab) {
+    h += '<div class="card"><div class="mute">Sesión en curso</div><div class="hero">' + esc(rutinaDe(ab)) + '</div>' +
+         '<div class="mute">' + hechas + ' series registradas</div><button class="prim ok" onclick="continuar()">Continuar</button></div>';
+  }
+  var gab = gruposAbandonados();
+  if (gab.length) {
+    h += '<div class="card"><div class="mute" style="margin-bottom:4px">Hace tiempo que no entrenas</div>' + gab.map(function (g) {
+      return '<div class="aviso"><span>' + esc(g.grupo) + '</span><span class="dias">' + (g.dias === null ? 'nunca' : g.dias + ' días') + '</span></div>';
+    }).join('') +
+    (gab.some(function (g) { return g.grupo === 'Pierna'; }) && sel !== 'Pierna' && E.rutinas.Pierna ? '<button style="width:100%;margin-top:8px" onclick="S.elegida=\'Pierna\';pintar()">Hoy toca pierna</button>' : '') + '</div>';
+  }
+  var last = E.ultimasSesiones.filter(function (s) { return s.tipo && s.tipo !== 'Descartada'; }).slice(-3).reverse()
+    .map(function (s) { return esc(s.tipo) + ' ' + dm(s.fecha); }).join(' · ');
+  h += '<div class="card"><div class="mute">' + (hechas && !cerrada ? 'O empieza otra' : 'Te toca') + '</div><div class="hero">' + esc(sel) + '</div>' +
+    '<div class="chips">' + opts.map(function (o) { return '<button class="chip' + (o === sel ? ' on' : '') + '" onclick="S.elegida=\'' + o + '\';pintar()">' + o + '</button>'; }).join('') + '</div>' +
+    '<button class="prim ok" onclick="empezar()">Empezar ' + esc(sel) + '</button>' +
+    '<div class="mute" style="margin-top:10px">Últimas: ' + (last || '—') + '</div></div>';
+  $('app').innerHTML = h;
+}
+
+var MACRO = { 'Cuádriceps': 'Pierna', 'Isquios': 'Pierna', 'Gemelo': 'Pierna', 'Glúteo': 'Pierna', 'Aductor': 'Pierna', 'Antebrazo': null };
+var ORDEN_GRUPOS = ['Pecho', 'Espalda', 'Hombro', 'Bíceps', 'Tríceps', 'Pierna', 'Abdomen'];
+/** Grupos principales con 7 días o más sin entrenar, de más a menos días. */
+function gruposAbandonados() {
+  var ult = {}, hoy = new Date(E.hoy + 'T12:00:00');
+  E.ejercicios.forEach(function (e) {
+    var g = e.grupo in MACRO ? MACRO[e.grupo] : e.grupo; if (!g || !e.ultima) return;
+    if (!ult[g] || e.ultima > ult[g]) ult[g] = e.ultima;
+  });
+  E.hoySets.forEach(function (x) { var e = ej(x.ej), g = e.grupo in MACRO ? MACRO[e.grupo] : e.grupo; if (g) ult[g] = E.hoy; });
+  return ORDEN_GRUPOS.map(function (g) {
+    return { grupo: g, dias: ult[g] ? Math.round((hoy - new Date(ult[g] + 'T12:00:00')) / 864e5) : null };
+  }).filter(function (x) { return x.dias === null ? false : x.dias >= 7; }).sort(function (a, b) { return b.dias - a.dias; });
+}
+
+function pintarSesion() {
+  cabecera(S.rutina, '<button class="hbtn l" onclick="alInicio()">' + ICON_ATRAS + 'Inicio</button>',
+                     '<button class="hbtn r" onclick="terminar()">Terminar</button>');
+  var h = '';
+  S.lista.forEach(function (id) {
+    var e = ej(id), hechas = efectivasHoy(id).length, obj = objetivo(id), done = hechas >= obj, cur = id === S.cur;
+    h += '<div class="card ex' + (cur ? ' cur' : '') + (done && !cur ? ' done' : '') + '" id="ex_' + esc(id) + '"' + (cur ? '' : ' onclick="elegir(\'' + id + '\')"') + '>' +
+      '<div class="row"><div class="t">' + esc(e.nombre) + '</div><span class="badge">' + (done ? '✓ ' : '') + hechas + '/' + obj + '</span>' +
+      (cur ? '<button class="mini" onclick="menuEj(\'' + id + '\')" aria-label="Opciones">⋯</button>' : '') + '</div>';
+    var hs = setsHoy(id);
+    if (hs.length) h += '<div class="sets">' + hs.map(function (x) { return '<span class="set' + (x.pending ? ' p' : '') + (x.pr ? ' pr' : '') + '">' + (x.pr ? '🏆 ' : '') + etiquetaSerie(e, x) + '</span>'; }).join('') + '</div>';
+    if (cur) h += panel(e);
+    h += '</div>';
+  });
+  h += '<div class="foot"><button onclick="abrirBuscar()">+ Añadir ejercicio</button><button class="prim" onclick="terminar()">Terminar sesión</button></div>' +
+       '<button class="ghost danger lnk" onclick="descartar()">Descartar sesión</button>';
+  $('app').innerHTML = h;
+}
+
+function etiquetaSerie(e, x) {
+  return (x.tramo > 1 ? '↳ ' : '') + (e.tipoCarga === 'reps' || e.tipoCarga === 'segs' ? '' : pesoTxt(e, x.peso) + ' × ') + n2(x.reps) + (e.tipoCarga === 'segs' ? ' s' : '');
+}
+function pesoTxt(e, p) {
+  if (p == null || p === '') return '—';
+  if (e.tipoCarga === 'lastre') return (p > 0 ? '+' + n2(p) : 'PC');
+  if (e.tipoCarga === 'asistencia') return '−' + n2(p);
+  return n2(p);
+}
+function unidad(e) { return { lastre: 'kg de lastre', asistencia: 'kg de ayuda', por_mancuerna: 'kg c/u', segs: '', reps: '' }[e.tipoCarga] || 'kg'; }
+function paso(e) { return e.equipo === 'Mancuernas' ? 1 : 2.5; }
+
+function panel(e) {
+  var id = e.id, h = E.historial[id] || [], L = h.length ? h[h.length - 1] : null;
+  var sinPeso = e.tipoCarga === 'reps' || e.tipoCarga === 'segs';
+  var p = '<div class="mute" style="margin-top:8px">' + (L ? 'Última vez ' + dm(L.fecha) + ': ' +
+          L.sets.map(function (s) { return (sinPeso ? '' : pesoTxt(e, s.peso) + '×') + n2(s.reps); }).join(', ') : 'Primera vez') + '</div>';
+  p += e.nota ? '<div class="nota" onclick="editarNota(\'' + id + '\')">📌 ' + esc(e.nota) + '</div>'
+              : '<div class="nota vacia" onclick="editarNota(\'' + id + '\')">📌 Añadir nota (asiento, posición, agarre…)</div>';
+  if (e.equipo === 'Polea') {
+    p += '<div class="chips">' + ['', 'G', 'N'].map(function (v) {
+      return '<button class="chip' + ((S.variante[id] || '') === v ? ' on' : '') + '" onclick="S.variante[\'' + id + '\']=\'' + v + '\';pintar()">' + (v ? (v === 'G' ? 'Polea gris' : 'Polea negra') : 'Sin especificar') + '</button>';
+    }).join('') + '</div>';
+  }
+  p += '<div style="margin-top:10px">';
+  if (!sinPeso) p += control('peso', S.form.peso, unidad(e), paso(e));
+  p += control('reps', S.form.reps, e.tipoCarga === 'segs' ? 'segundos' : 'reps', 1) + '</div>';
+  var n = efectivasHoy(id).length + (S.tramo > 1 ? 0 : 1);
+  p += '<button class="prim ok" onclick="guardar()">' + (S.tramo > 1 ? 'Guardar tramo ' + S.tramo + ' (serie ' + (n) + ')' : '✓  Serie ' + n) + '</button>';
+  if (S.tramo > 1) p += '<button class="ghost lnk" onclick="S.tramo=1;prepararForm();pintar()">Cancelar tramo</button>';
+  p += '<div class="mute" style="margin-top:6px">' + esc(S.form.motivo || '') + '</div>';
+  if (S.prog) p += '<button class="hint" onclick="S.form.peso=' + S.prog.peso + ';S.form.reps=' + S.prog.reps + ';S.form.motivo=\'Progresión\';S.prog=null;pintar()">↑ Subir a ' + n2(S.prog.peso) + ' kg × ' + S.prog.reps + ' — ' + esc(S.prog.motivo) + '</button>';
+  if (setsHoy(id).length && S.tramo === 1) {
+    p += '<div class="row" style="margin-top:6px;justify-content:space-between"><button class="ghost" onclick="masTramo()">+ Tramo (drop)</button>' +
+         '<button class="ghost" onclick="deshacer()">Deshacer</button></div>';
+  }
+  return p;
+}
+function control(k, v, lbl, step) {
+  return '<div class="ctrl"><button class="step" onclick="mover(\'' + k + '\',' + (-step) + ')" aria-label="menos">−</button>' +
+    '<div class="val"><input inputmode="decimal" value="' + n2(v) + '" onchange="S.form.' + k + '=parseFloat(this.value.replace(\',\',\'.\'));S.form.auto=false"><small>' + esc(lbl) + '</small></div>' +
+    '<button class="step" onclick="mover(\'' + k + '\',' + step + ')" aria-label="más">+</button></div>';
+}
+function mover(k, d) { var v = Number(S.form[k]) || 0; S.form[k] = Math.max(0, Math.round((v + d) * 100) / 100); S.form.auto = false; pintar(); }
+
+// ============================================================ acciones de la sesión
+function empezar() {
+  var ab = sesionAbierta(); if (ab) { var c = cerradas(); c.push(ab); lsSet(K_CERR, c); }   // empezar otra cierra la que estaba en curso
+  S.sesion = nuevaSesionId(); S.rutina = S.elegida || E.siguiente; S.cur = null;
+  setDia({ lista: null, inicio: null, descansos: [], recs: [] });
+  lsSet('gym_rutina_' + S.sesion, S.rutina);
+  montarLista(); pintar(); window.scrollTo(0, 0);
+}
+function continuar() { S.sesion = sesionAbierta(); S.rutina = rutinaDe(S.sesion); montarLista(); pintar(); verActual(); }
+function alInicio() { S.rutina = null; pintar(); window.scrollTo(0, 0); }
+function elegir(id) { S.cur = id; prepararForm(); pintar(); verActual(); }
+function verActual() { setTimeout(function () { var c = document.querySelector('.ex.cur'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30); }
+
+function guardar() {
+  var e = ej(S.cur), sinPeso = e.tipoCarga === 'reps' || e.tipoCarga === 'segs';
+  var pesoMal = !sinPeso && (S.form.peso === null || S.form.peso === undefined || isNaN(S.form.peso));
+  if (!S.form.reps || pesoMal) { toast('Falta ' + (S.form.reps ? 'el peso' : 'las reps'), 'err'); return; }
+  var prevTramo1 = efectivasHoy(S.cur).slice(-1)[0];
+  var desc = segDescanso();
+  var notas = (S.tramo === 1 && desc !== null && desc < 900 && setsSesion().length > 0) ? 'descanso ' + mmss(desc) : '';
+  var s = { clientId: 'c' + Date.now() + Math.random().toString(36).slice(2, 7), sesion: S.sesion, fecha: E.hoy, ej: S.cur, variante: S.variante[S.cur] || '',
+            peso: sinPeso ? '' : S.form.peso, reps: S.form.reps, tramo: S.tramo, notas: notas,
+            tipo: S.tramo > 1 ? (prevTramo1 && prevTramo1.peso === S.form.peso ? 'rest-pause' : 'drop') : 'normal', rutina: S.rutina };
+  var nSerie = S.tramo > 1 && prevTramo1 ? (prevTramo1.serie || efectivasHoy(s.ej).length) : efectivasHoy(s.ej).length + 1;
+  var rec = S.tramo === 1 && !sinPeso ? esRecord(e, S.form.peso, S.form.reps) : null;
+  E.hoySets.push({ clientId: s.clientId, sesion: S.sesion, ej: s.ej, peso: s.peso === '' ? null : s.peso, reps: s.reps, tramo: s.tramo, tipo: s.tipo,
+                   variante: s.variante, pending: true, serie: nSerie, pr: !!rec });
+  lsSet(K_EST, E);
+  var d = dia();
+  if (!d.inicio) d.inicio = Date.now();
+  if (notas) (d.descansos = d.descansos || []).push(desc);
+  if (rec) (d.recs = d.recs || []).push({ ej: s.ej, v: rec.v, antes: rec.antes });
+  setDia(d);
+  setCola(cola().concat([s])); vaciarCola();
+  vibrar(30);
+  iniciarDescanso(e.nombre + ' · serie ' + nSerie);
+  if (rec) { toast('🏆 Récord: ' + n2(rec.v) + ' kg de e1RM (antes ' + n2(rec.antes) + ')', 'ok'); vibrar([40, 60, 40]); }
+  else toast(S.tramo > 1 ? 'Tramo guardado' : '✓ Serie ' + nSerie + ' guardada', 'ok');
+  if (S.tramo === 1 && efectivasHoy(S.cur).length >= objetivo(S.cur)) {
+    var sig = siguientePendiente();
+    if (sig) { S.cur = sig; prepararForm(); pintar(); verActual(); if (!rec) toast('Siguiente: ' + ej(sig).nombre, 'ok'); return; }
+  }
+  prepararForm(); pintar();
+}
+/** ¿La serie supera el mejor e1RM histórico del ejercicio (y lo hecho hoy)? Devuelve { v, antes } o null. */
+function esRecord(e, peso, reps) {
+  var v = e1rm(cargaEf(e, peso), reps); if (!v || !e.mejor) return null;
+  var antes = e.mejor;
+  efectivasHoy(e.id).forEach(function (x) { var w = e1rm(cargaEf(e, x.peso), x.reps); if (w && w > antes) antes = w; });
+  return v > antes ? { v: v, antes: antes } : null;
+}
+function masTramo() {
+  var last = setsHoy(S.cur).slice(-1)[0]; if (!last) return;
+  S.tramo = (last.tramo || 1) + 1;
+  S.form = { peso: last.peso, reps: Math.max(1, Math.round((last.reps || 4) / 3)), motivo: 'Tramo ' + S.tramo + ': baja el peso para drop, mismo peso para rest-pause' };
+  pintar();
+}
+function deshacer() {
+  var hs = setsHoy(S.cur), x = hs[hs.length - 1]; if (!x) return;
+  confirmar('¿Borrar la última serie?', etiquetaSerie(ej(S.cur), x) + ' en ' + ej(S.cur).nombre, 'Borrar', true, function () {
+    E.hoySets.splice(E.hoySets.indexOf(x), 1); lsSet(K_EST, E);
+    if (x.pending) setCola(cola().filter(function (c) { return c.clientId !== x.clientId; }));
+    else run('borrarSerie', [x.id], function () {});
+    prepararForm(); pintar(); toast('Serie borrada');
+  });
+}
+function terminar() {
+  var series = setsSesion().filter(function (x) { return x.tramo === 1; });
+  if (!series.length) {
+    return confirmar('No hay series registradas', 'La sesión está vacía. ¿Volver al inicio?', 'Volver', false, function () { S.rutina = null; pararDescanso(); pintar(); });
+  }
+  var nEj = S.lista.filter(function (id) { return setsHoy(id).length; }).length;
+  confirmar('¿Terminar la sesión?', series.length + ' series · ' + nEj + ' ejercicios', 'Terminar', false, function () {
+    pararDescanso();
+    var r = resumenSesion(), recs = recordsHoy();
+    var c = cerradas(); c.push(S.sesion); lsSet(K_CERR, c);
+    setCola(cola().concat([{ op: 'cerrar', clientId: 'z' + Date.now(), sesion: S.sesion, fecha: E.hoy, datos: { duracionMin: r.duracion, descansoMedio: r.descanso } }])); vaciarCola();
+    var pend = cola().filter(function (c) { return c.op !== 'cerrar'; }).length;
+    var comp = r.prev ? Math.round((r.volumen / r.prev.volumen - 1) * 100) : null;
+    abrirHoja('<h3>Sesión guardada ✓</h3><p class="mute" style="margin-top:0">' + esc(S.rutina) + ' · ' + series.length + ' series · ' + nEj + ' ejercicios</p>' +
+      '<div class="stat"><div><span class="mute">Duración</span><b>' + (r.duracion ? r.duracion + ' min' : '—') + '</b></div>' +
+      '<div><span class="mute">Descanso medio</span><b>' + (r.descanso ? mmss(r.descanso) : '—') + '</b></div>' +
+      '<div style="grid-column:1/3"><span class="mute">Volumen</span><b>' + Math.round(r.volumen).toLocaleString('es-ES') + ' kg' +
+      (comp !== null ? ' <span class="' + (comp >= 0 ? 'up' : 'down') + '" style="font-size:15px">' + (comp >= 0 ? '+' : '') + comp + ' %</span>' : '') + '</b>' +
+      (r.prev ? '<span class="mute">vs ' + esc(r.prev.tipo) + ' del ' + dm(r.prev.fecha) + ' (' + Math.round(r.prev.volumen).toLocaleString('es-ES') + ' kg)</span>' : '') + '</div></div>' +
+      (pend ? '<div class="banner" style="background:var(--warn2);color:var(--warn)">' + pend + ' series pendientes de enviar. Se enviarán solas al recuperar la conexión.</div>' : '') +
+      (recs.length ? '<p><b>🏆 Récords de fuerza estimada</b></p><ul style="padding-left:20px;margin:0">' + recs.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p class="mute">Sin récords nuevos hoy.</p>') +
+      '<button class="prim ok" onclick="cerrar();S.rutina=null;S.sesion=null;ir(\'hoy\');cargar(true)">Volver al inicio</button>', true);
+  });
+}
+function cargaEf(e, p) { return e.tipoCarga === 'lastre' ? E.cfg.pesoCorporal + (p || 0) : e.tipoCarga === 'asistencia' ? E.cfg.pesoCorporal - (p || 0) : p; }
+/** Récords de hoy: el mejor de cada ejercicio frente a su marca anterior a la sesión. */
+function recordsHoy() {
+  var por = {};
+  (dia().recs || []).forEach(function (r) {
+    if (!setsHoy(r.ej).some(function (x) { return x.pr; })) return;   // la serie se borró
+    var p = por[r.ej]; if (!p) por[r.ej] = { v: r.v, antes: r.antes }; else { p.v = Math.max(p.v, r.v); p.antes = Math.min(p.antes, r.antes); }
+  });
+  return Object.keys(por).map(function (id) { return ej(id).nombre + ': ' + n2(por[id].v) + ' kg (antes ' + n2(por[id].antes) + ')'; });
+}
+/** Duración (min), descanso medio (s), volumen (kg) y la última sesión del mismo tipo. */
+function resumenSesion() {
+  var d = dia(), vol = 0;
+  setsSesion().forEach(function (x) {
+    var e = ej(x.ej); if (x.tipo === 'calentamiento' || e.tipoCarga === 'reps' || e.tipoCarga === 'segs') return;
+    var c = cargaEf(e, x.peso); if (c && x.reps) vol += c * x.reps;
+  });
+  var dur = d.inicio ? Math.round((Date.now() - d.inicio) / 60000) : null; if (dur !== null && (dur < 1 || dur > 240)) dur = null;
+  var ds = (d.descansos || []).filter(function (s) { return s >= 20 && s <= 600; });
+  var desc = ds.length ? Math.round(ds.reduce(function (a, b) { return a + b; }, 0) / ds.length) : null;
+  var prev = E.ultimasSesiones.filter(function (s) { return s.tipo === S.rutina && s.id !== S.sesion && s.volumen > 0; }).pop() || null;
+  return { duracion: dur, descanso: desc, volumen: vol, prev: prev };
+}
+function descartar() {
+  var mias = setsSesion(), n = mias.length, sid = S.sesion;
+  confirmar('¿Descartar esta sesión?', n ? 'Se borrarán las ' + n + ' series de esta sesión. No se puede deshacer desde la app.' : 'No hay series registradas.', 'Descartar', true, function () {
+    setCola(cola().filter(function (s) { return (s.sesion || 'S' + s.fecha) !== sid; }));
+    var hayEnServidor = mias.some(function (x) { return !x.pending; });
+    E.hoySets = E.hoySets.filter(function (x) { return x.sesion !== sid; }); setDia({});
+    S.rutina = null; S.sesion = null; pararDescanso(); lsSet(K_EST, E);
+    pintar(); toast('Sesión descartada');
+    if (hayEnServidor) run('descartarSesion', [sid], function () {});
+  });
+}
+
+// ============================================================ hojas modales y confirmaciones
+function abrirHoja(html, fija) { $('sheet').innerHTML = html; var m = $('modal'); m.className = 'modal on'; if (fija) m.dataset.fijo = '1'; else delete m.dataset.fijo; }
+function cerrar() { var m = $('modal'); m.className = 'modal'; delete m.dataset.fijo; }
+var _ok = null;
+function confirmar(titulo, texto, okTxt, peligro, onOk) {
+  _ok = onOk;
+  abrirHoja('<h3>' + esc(titulo) + '</h3><p class="mute" style="margin:4px 0 0">' + esc(texto) + '</p>' +
+    '<div class="pair"><button onclick="cerrar()">Cancelar</button><button class="' + (peligro ? 'dangerfill' : 'prim') + '" onclick="var f=_ok;_ok=null;cerrar();f&&f()">' + esc(okTxt) + '</button></div>');
+}
+
+// ============================================================ añadir ejercicio
+var BUSCAR = { modo: 'anadir', obj: null };
+function abrirBuscar(modo, obj) {
+  BUSCAR = { modo: modo || 'anadir', obj: obj || null };
+  abrirHoja('<h3>' + (BUSCAR.modo === 'sustituir' ? 'Sustituir ' + esc(ej(obj).nombre) + ' por…' : 'Añadir ejercicio') + '</h3><input type="search" id="q" placeholder="Buscar ejercicio…" oninput="listaBuscar()"><div id="res"></div>' +
+    '<div class="pair"><button onclick="cerrar()">Cancelar</button><button class="prim" onclick="formNuevo()">+ Crear nuevo</button></div>');
+  listaBuscar();
+}
+function listaBuscar() {
+  var q = ($('q').value || '').toLowerCase();
+  var l = E.ejercicios.filter(function (e) { return S.lista.indexOf(e.id) < 0 && (!q || (e.nombre + ' ' + e.grupo).toLowerCase().indexOf(q) >= 0); })
+    .sort(function (a, b) { return (b.activo - a.activo) || String(b.ultima).localeCompare(String(a.ultima)); }).slice(0, 40);
+  $('res').innerHTML = l.map(function (e) {
+    return '<div class="li" onclick="elegidoBuscar(\'' + e.id + '\')"><b>' + esc(e.nombre) + '</b><div class="mute">' + esc(e.grupo) + (e.ultima ? ' · última vez ' + e.ultima.split('-').reverse().join('/') : ' · nunca') + '</div></div>';
+  }).join('') || '<p class="mute">Nada encontrado.</p>';
+}
+function elegidoBuscar(id) { if (BUSCAR.modo === 'sustituir') sustituir(BUSCAR.obj, id); else anadir(id); }
+function anadir(id) {
+  if (!S.rutina) { S.sesion = nuevaSesionId(); S.rutina = 'Libre'; lsSet('gym_rutina_' + S.sesion, 'Libre'); setDia({ lista: [] }); }
+  var d = dia(); d.lista = (d.lista || []).concat([id]); setDia(d);
+  montarLista(); S.cur = id; prepararForm(); cerrar(); pintar(); verActual(); toast('Añadido: ' + ej(id).nombre, 'ok');
+}
+function formNuevo() {
+  abrirHoja('<h3>Ejercicio nuevo</h3><label class="f">Nombre</label><input type="text" id="nn" placeholder="p. ej. Press declinado en máquina">' +
+    '<label class="f">Grupo muscular</label><select id="ng">' + GRUPOS.map(function (g) { return '<option>' + g + '</option>'; }).join('') + '</select>' +
+    '<label class="f">Equipo</label><select id="ne"><option>Máquina</option><option>Polea</option><option>Barra</option><option>Smith</option><option>Mancuernas</option><option>Peso corporal</option></select>' +
+    '<label class="f">Cómo se anota el peso</label><select id="nt"><option value="total">Peso total</option><option value="por_mancuerna">Por mancuerna</option><option value="lastre">Lastre sobre peso corporal</option><option value="asistencia">Ayuda (asistido)</option><option value="reps">Solo repeticiones</option><option value="segs">Segundos</option></select>' +
+    '<div class="pair"><button onclick="abrirBuscar()">Cancelar</button><button class="prim" onclick="crearNuevo()">Crear y añadir</button></div>');
+}
+function crearNuevo() {
+  var e = { nombre: $('nn').value.trim(), grupo: $('ng').value, equipo: $('ne').value, tipoCarga: $('nt').value };
+  if (!e.nombre) { toast('Ponle un nombre', 'err'); return; }
+  run('crearEjercicio', [e], function (r) { E.ejercicios.push(r); lsSet(K_EST, E); elegidoBuscar(r.id); toast('Creado: ' + r.nombre, 'ok'); });
+}
+
+// ============================================================ opciones del ejercicio: sustituir, quitar, nota
+function menuEj(id) {
+  var e = ej(id), conSeries = setsHoy(id).length > 0;
+  abrirHoja('<h3>' + esc(e.nombre) + '</h3>' +
+    '<button style="width:100%;margin-top:10px" onclick="abrirBuscar(\'sustituir\',\'' + id + '\')">' + (conSeries ? 'Pasar a otro ejercicio (este conserva sus series)' : 'Sustituir por otro ejercicio') + '</button>' +
+    '<button style="width:100%;margin-top:10px" onclick="editarNota(\'' + id + '\')">' + (e.nota ? 'Editar nota fijada' : 'Añadir nota fijada') + '</button>' +
+    (conSeries ? '<p class="mute" style="text-align:center">Ya tiene series hoy: para quitarlo, deshaz antes sus series.</p>'
+               : '<button class="ghost danger lnk" style="margin-top:10px" onclick="quitarEj(\'' + id + '\')">Quitar de la sesión de hoy</button>') +
+    '<button class="lnk" style="margin-top:6px" onclick="cerrar()">Cancelar</button>');
+}
+function sustituir(viejo, nuevo) {
+  var d = dia(), l = d.lista || [], i = l.indexOf(viejo);
+  if (l.indexOf(nuevo) >= 0) l.splice(l.indexOf(nuevo), 1);
+  var reemplaza = i >= 0 && !setsHoy(viejo).length;
+  if (reemplaza) l.splice(l.indexOf(viejo), 1, nuevo); else l.push(nuevo);
+  d.lista = l; setDia(d);
+  S.cur = nuevo; montarLista(); prepararForm(); cerrar(); pintar(); verActual();
+  toast(reemplaza ? ej(viejo).nombre + ' → ' + ej(nuevo).nombre : 'Añadido: ' + ej(nuevo).nombre, 'ok');
+}
+function quitarEj(id) {
+  var d = dia(); d.lista = (d.lista || []).filter(function (x) { return x !== id; }); setDia(d);
+  if (S.cur === id) S.cur = null;
+  montarLista(); cerrar(); pintar(); toast('Quitado de hoy: ' + ej(id).nombre);
+}
+function editarNota(id) {
+  var e = ej(id);
+  abrirHoja('<h3>Nota fijada</h3><p class="mute" style="margin-top:0">' + esc(e.nombre) + ' · aparece cada vez que hagas este ejercicio.</p>' +
+    '<textarea id="nt_txt" maxlength="300" placeholder="p. ej. Asiento 4, respaldo 2, agarre neutro">' + esc(e.nota || '') + '</textarea>' +
+    '<div class="pair"><button onclick="cerrar()">Cancelar</button><button class="prim" onclick="guardarNota(\'' + id + '\')">Guardar</button></div>');
+}
+function guardarNota(id) {
+  var t = $('nt_txt').value.trim(), e = ej(id);
+  e.nota = t; lsSet(K_EST, E); cerrar(); pintar();
+  run('guardarNotaEjercicio', [id, t], function () { toast(t ? '📌 Nota guardada' : 'Nota borrada', 'ok'); });
+}
+
+// ============================================================ progreso
+var chart = null;
+var VENTANA_ESTANC = 4;
+function pintarProgreso() {
+  cabecera('Progreso');
+  var sel = S.progEj || S.cur || (E.ejercicios.filter(function (e) { return e.activo; })[0] || {}).id;
+  S.progEj = sel;
+  var opts = E.ejercicios.filter(function (e) { return e.ultima; }).sort(function (a, b) { return (b.activo - a.activo) || a.nombre.localeCompare(b.nombre); });
+  $('app').innerHTML = '<div id="estanc"></div><div class="card"><select onchange="S.progEj=this.value;pintar()">' + opts.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === sel ? ' selected' : '') + '>' + esc(e.nombre) + '</option>'; }).join('') + '</select>' +
+    '<div id="kpis" class="row" style="justify-content:space-between;margin:14px 2px"><span class="mute">Cargando…</span></div><div id="estEj"></div><canvas id="cv" height="260"></canvas><div class="mute" style="margin-top:8px">Fuerza estimada (Epley) y peso de la serie más pesada por sesión.</div></div>';
+  // estancados: caché del día y refresco en segundo plano
+  var ce = lsGet('gym_estanc_v1', null);
+  if (ce) pintarEstancados(ce.lista);
+  if (!ce || ce.fecha !== E.hoy) run('getEstancados', [VENTANA_ESTANC], function (l) { lsSet('gym_estanc_v1', { fecha: E.hoy, lista: l }); if (S.vista === 'prog') pintarEstancados(l); }, function () {});
+  // gráfico: caché por ejercicio y refresco en segundo plano
+  var cp = lsGet('gym_prog_' + sel, null);
+  if (cp) dibujarProgreso(cp);
+  run('getProgreso', [sel], function (r) { lsSet('gym_prog_' + sel, r); if (S.vista === 'prog' && S.progEj === sel) dibujarProgreso(r); },
+      function () { if (!cp) $('kpis').innerHTML = '<span class="mute">Sin conexión</span>'; });
+}
+function pintarEstancados(l) {
+  var el = $('estanc'); if (!el) return;
+  l = (l || []).filter(function (x) { return ej(x.ej).activo !== false; });
+  if (!l.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="card"><div class="mute" style="margin-bottom:4px">Estancados (sin récord en sus últimas ' + VENTANA_ESTANC + '+ sesiones)</div>' + l.slice(0, 6).map(function (x) {
+    return '<div class="aviso" onclick="S.progEj=\'' + x.ej + '\';pintar();window.scrollTo(0,0)"><span>' + esc(ej(x.ej).nombre) + '</span><span class="dias">' + x.sesiones + ' ses.</span></div>';
+  }).join('') + '</div>';
+}
+/** Sesiones seguidas al final sin superar la mejor marca anterior (null si hay récord en las últimas VENTANA_ESTANC). */
+function estancamiento(p) {
+  if (p.length < VENTANA_ESTANC + 1) return null;
+  var antes = p.slice(0, -VENTANA_ESTANC), mejor = Math.max.apply(null, antes.map(function (x) { return x.e1rm || 0; }));
+  if (Math.max.apply(null, p.slice(-VENTANA_ESTANC).map(function (x) { return x.e1rm || 0; })) > mejor) return null;
+  var iRec = -1; antes.forEach(function (x, i) { if (x.e1rm === mejor) iRec = i; });
+  return { sesiones: p.length - 1 - iRec, mejor: mejor, fecha: antes[iRec].fecha };
+}
+function dibujarProgreso(r) {
+  var p = r.puntos.filter(function (x) { return x.e1rm || x.top; });
+  if (!p.length) { $('kpis').innerHTML = '<span class="mute">Sin datos</span>'; $('estEj').innerHTML = ''; return; }
+  var best = Math.max.apply(null, p.map(function (x) { return x.e1rm || 0; })), last = p[p.length - 1];
+  $('kpis').innerHTML = kpi('Mejor e1RM', n2(best)) + kpi('Último', n2(last.e1rm)) + kpi('Sesiones', p.length);
+  var es = estancamiento(p.filter(function (x) { return x.e1rm; }));
+  $('estEj').innerHTML = es ? '<div class="banner" style="background:var(--warn2);color:var(--warn)">⚠ ' + es.sesiones + ' sesiones sin superar tu mejor marca (' + n2(es.mejor) + ' kg el ' + dm(es.fecha) + '/' + es.fecha.slice(2, 4) + ').</div>' : '';
+  if (chart) chart.destroy();
+  if (typeof Chart === 'undefined') return;
+  var css = getComputedStyle(document.documentElement);
+  chart = new Chart($('cv'), { type: 'line', data: { labels: p.map(function (x) { return dm(x.fecha) + '/' + x.fecha.slice(2, 4); }),
+    datasets: [{ label: 'e1RM (kg)', data: p.map(function (x) { return x.e1rm; }), borderColor: css.getPropertyValue('--acc').trim(), pointRadius: 2, tension: .2, spanGaps: true },
+               { label: 'Peso top (kg)', data: p.map(function (x) { return x.top; }), borderColor: '#e07b39', borderDash: [4, 4], pointRadius: 0, tension: .2, spanGaps: true }] },
+    options: { animation: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { ticks: { maxTicksLimit: 6 } } } } });
+}
+function kpi(l, v) { return '<div><div class="mute">' + l + '</div><div style="font-size:22px;font-weight:700">' + v + '</div></div>'; }
+
+// ============================================================ historial (se pinta al instante desde lo guardado y se refresca detrás)
+function sesionesHistorial() {
+  var l = (E.historialSesiones || []).filter(function (s) { return s.fecha !== E.hoy; });
+  sesionesConSeries().forEach(function (sid) { l.unshift({ sesion: sid, fecha: E.hoy, sets: E.hoySets.filter(function (x) { return x.sesion === sid; }) }); });
+  return l.slice(0, 10);
+}
+function pintarHistorial() {
+  cabecera('Historial');
+  dibujarHistorial(sesionesHistorial());
+  run('getHistorial', [10], function (ses) {
+    E.historialSesiones = ses; lsSet(K_EST, E);
+    if (S.vista === 'hist') dibujarHistorial(sesionesHistorial());
+  }, function () {});
+}
+function dibujarHistorial(ses) {
+  $('app').innerHTML = '<p class="mute" style="margin:8px 4px">Toca una serie para corregirla o borrarla.</p>' + (ses.map(function (s) {
+    var por = {}; s.sets.forEach(function (x) { (por[x.ej] = por[x.ej] || []).push(x); });
+    var t = tipoDe(s.sesion);
+    return '<div class="card"><b>' + s.fecha.split('-').reverse().join('/') + '</b>' + (t && t !== 'Descartada' ? ' <span class="mute">· ' + esc(t) + '</span>' : '') + Object.keys(por).map(function (id) {
+      var e = ej(id);
+      return '<div style="margin-top:8px">' + esc(e.nombre) + '<div class="sets">' + por[id].map(function (x) {
+        return x.id ? '<span class="set" onclick="editar(\'' + x.id + '\',\'' + id + '\',' + (x.peso == null ? 'null' : x.peso) + ',' + x.reps + ')">' + etiquetaSerie(e, x) + '</span>'
+                    : '<span class="set p">' + etiquetaSerie(e, x) + '</span>';
+      }).join('') + '</div></div>';
+    }).join('') + '</div>';
+  }).join('') || '<p class="mute">Sin sesiones.</p>');
+}
+function editar(id, ejId, peso, reps) {
+  var e = ej(ejId), sinPeso = e.tipoCarga === 'reps' || e.tipoCarga === 'segs';
+  abrirHoja('<h3>' + esc(e.nombre) + '</h3><div class="row">' +
+    (sinPeso ? '' : '<div style="flex:1"><label class="f">' + esc(unidad(e)) + '</label><input type="text" id="ep" inputmode="decimal" value="' + n2(peso) + '"></div>') +
+    '<div style="flex:1"><label class="f">' + (e.tipoCarga === 'segs' ? 'segundos' : 'reps') + '</label><input type="text" id="er" inputmode="numeric" value="' + n2(reps) + '"></div></div>' +
+    '<div class="pair"><button onclick="cerrar()">Cancelar</button><button class="prim" onclick="guardarEdicion(\'' + id + '\')">Guardar</button></div>' +
+    '<button class="ghost danger lnk" style="margin-top:10px" onclick="borrarHist(\'' + id + '\')">Borrar serie</button>');
+}
+function guardarEdicion(id) {
+  var p = $('ep') ? parseFloat($('ep').value.replace(',', '.')) : '', r = parseFloat($('er').value.replace(',', '.'));
+  if (!r) { toast('Reps no válidas', 'err'); return; }
+  run('editarSerie', [id, p, r], function () { cambiarLocal(id, function (x) { x.peso = p === '' ? null : p; x.reps = r; }); cerrar(); toast('✓ Cambios guardados', 'ok'); pintar(); });
+}
+/** Aplica una edición (fn) o un borrado (fn = null) a la serie en las copias locales. */
+function cambiarLocal(id, fn) {
+  [E.hoySets].concat((E.historialSesiones || []).map(function (s) { return s.sets; })).forEach(function (l) {
+    for (var i = l.length - 1; i >= 0; i--) if (l[i].id === id) { if (fn) fn(l[i]); else l.splice(i, 1); }
+  });
+  lsSet(K_EST, E);
+}
+function borrarHist(id) {
+  confirmar('¿Borrar esta serie?', 'Se marcará como borrada en la hoja.', 'Borrar', true, function () {
+    run('borrarSerie', [id], function () { cambiarLocal(id, null); toast('Serie borrada'); pintar(); });
+  });
+}
+
+// ============================================================ ajustes
+var VERSION_APP = 'v4';
+function pintarAjustes() {
+  cabecera('Ajustes', '<button class="hbtn l" onclick="ir(\'hoy\')">' + ICON_ATRAS + 'Inicio</button>');
+  $('app').innerHTML = '<div class="card"><h3 style="margin:0 0 4px">Peso corporal</h3>' +
+    '<p class="mute" style="margin:0 0 8px">Se usa en los ejercicios con lastre o asistidos (fondos, dominadas). Las series ya guardadas no cambian.</p>' +
+    '<div class="row"><input type="text" id="pc" inputmode="decimal" value="' + n2(E.cfg.pesoCorporal) + '" style="flex:1"><span class="mute">kg</span></div>' +
+    '<button class="prim ok" onclick="guardarPeso()">Guardar peso</button></div>' +
+    '<div class="card"><h3 style="margin:0 0 4px">Conexión</h3><p class="mute" style="margin:0">' + (MODO === 'gas' ? 'App servida por Apps Script.' : 'Conectada a tu hoja Gym v2.') + ' Versión ' + VERSION_APP + '.</p>' +
+    (MODO === 'api' ? '<button class="ghost danger lnk" style="margin-top:10px" onclick="olvidarClave()">Olvidar la clave en este móvil</button>' : '') + '</div>';
+}
+function guardarPeso() {
+  var kg = parseFloat(($('pc').value || '').replace(',', '.'));
+  if (!(kg >= 30 && kg <= 250)) { toast('Peso no válido', 'err'); return; }
+  run('guardarPesoCorporal', [kg], function () { E.cfg.pesoCorporal = kg; lsSet(K_EST, E); toast('✓ Peso corporal: ' + n2(kg) + ' kg', 'ok'); });
+}
+function olvidarClave() {
+  confirmar('¿Olvidar la clave?', 'Tendrás que volver a escribirla para usar la app en este móvil.', 'Olvidar', true, function () {
+    var c = conexion(); delete c.key; lsSet(K_CONEX, c); lsSet(K_EST, null); E = null; pantallaConexion('');
+  });
+}
+
+// ============================================================ conexión (solo app instalada fuera de Google)
+function pantallaConexion(motivo) {
+  cabecera('Conectar');
+  var c = conexion();
+  $('app').innerHTML = '<div class="card"><h3 style="margin:0 0 6px">Conecta la app con tu hoja</h3>' +
+    '<p class="mute" style="margin-top:0">' + (motivo && /CLAVE/.test(motivo) && c.key ? 'La clave no es correcta. ' : '') +
+    'En el Sheet <b>Gym v2</b>, menú <b>Gym → Conectar el móvil</b>, copia la clave aquí. Solo hay que hacerlo una vez.</p>' +
+    (window.GYM_API_URL || MODO === 'gas' ? '' : '<label class="f">URL de la API (termina en /exec)</label><input type="text" id="cu" value="' + esc(c.url || '') + '">') +
+    '<label class="f">Clave</label><input type="text" id="ck" autocapitalize="characters" autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX" value="' + esc(c.key || '') + '">' +
+    '<button class="prim ok" onclick="guardarConex()">Conectar</button></div>';
+}
+function guardarConex() {
+  var c = conexion();
+  if ($('cu')) c.url = $('cu').value.trim();
+  c.key = $('ck').value.trim().toUpperCase();
+  lsSet(K_CONEX, c); toast('Conectando…'); E = null; lsSet(K_EST, null); cargar();
+}
+
+tickDescanso();
+cargar();
+</script>
+
+</body>
+</html>
