@@ -495,7 +495,15 @@ function empezar() {
 function continuar() { S.sesion = sesionAbierta(); S.rutina = rutinaDe(S.sesion); montarLista(); pintar(); verActual(); }
 function alInicio() { S.rutina = null; pintar(); window.scrollTo(0, 0); }
 function elegir(id) { S.cur = id; prepararForm(); pintar(); verActual(); }
-function verActual() { setTimeout(function () { var c = document.querySelector('.ex.cur'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30); }
+// Desplaza el ejercicio abierto justo debajo de la cabecera fija (sin que el título quede tapado)
+function verActual() {
+  setTimeout(function () {
+    var c = document.querySelector('.ex.cur'); if (!c) return;
+    var h = document.querySelector('header').getBoundingClientRect().bottom;
+    var y = window.scrollY + c.getBoundingClientRect().top - h - 8;
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+  }, 30);
+}
 
 function guardar() {
   var e = ej(S.cur), sinPeso = e.tipoCarga === 'reps' || e.tipoCarga === 'segs';
@@ -816,7 +824,7 @@ function borrarHist(id) {
 }
 
 // ============================================================ ajustes
-var VERSION_APP = 'v4.1';
+var VERSION_APP = 'v4.2';
 function pintarAjustes() {
   cabecera('Ajustes', '<button class="hbtn l" onclick="ir(\'hoy\')">' + ICON_ATRAS + 'Inicio</button>');
   $('app').innerHTML = '<div class="card"><h3 style="margin:0 0 4px">Peso corporal</h3>' +
