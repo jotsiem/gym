@@ -1,5 +1,5 @@
 // Caché de la app para que abra al instante y funcione sin cobertura. Los datos van siempre a la red.
-var CACHE = 'gym-v2.0';
+var CACHE = 'gym-v3.0';
 var SHELL = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png',
              'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js'];
 self.addEventListener('install', function (e) { e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); })); });
