@@ -32,10 +32,10 @@
   /* ---------- cabecera oscura (también cubre la zona de la hora y la batería) ---------- */
   header { position:sticky; top:0; z-index:10; background:var(--hdr); color:var(--hdr-ink);
            padding:calc(env(safe-area-inset-top) + 8px) max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
-           display:grid; grid-template-columns:88px 1fr 88px; align-items:center; min-height:52px; }
+           display:grid; grid-template-columns:88px 1fr 88px; align-items:center; height:calc(env(safe-area-inset-top) + 58px); box-sizing:border-box; }
   header h1 { grid-column:2; font-size:17px; font-weight:700; margin:0; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   header .sub { display:block; font-size:11px; font-weight:500; color:var(--hdr-mute); text-align:center; }
-  .hbtn { background:transparent; color:var(--hdr-ink); padding:8px 6px; font-size:16px; font-weight:600; border-radius:10px; min-height:40px; }
+  .hbtn { background:transparent; color:var(--hdr-ink); padding:0 6px; font-size:16px; font-weight:600; border-radius:10px; height:40px; line-height:40px; }
   .hbtn.l { justify-self:start; display:flex; align-items:center; gap:2px; }
   .hbtn.r { justify-self:end; color:#9fb8ff; }
   .hbtn svg { width:22px; height:22px; }
@@ -93,8 +93,34 @@
   #timer.long .clk { color:#ff8a65; }
   #timer button { background:rgba(255,255,255,.12); color:#fff; height:44px; padding:0 14px; }
   /* ---------- hojas modales, avisos ---------- */
-  .modal { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-end; z-index:30; }
-  .modal.on { display:flex; }
+  .modal { position:fixed; left:0; right:0; top:0; height:var(--vvh, 100%); background:rgba(0,0,0,.5); display:none; align-items:flex-end; z-index:30; }
+  .modal.on { display:flex; animation:aparece .18s ease-out; }
+  .modal.on .sheet { animation:sube .26s cubic-bezier(.2,.8,.2,1); }
+  .modal.sale { animation:desaparece .16s ease-in forwards; }
+  .modal.sale .sheet { animation:baja .16s ease-in forwards; }
+  .modal.arriba { align-items:flex-start; }
+  #kpis small { font-size:13px; font-weight:600; color:var(--mute); }
+  .modal.arriba .sheet { border-radius:0 0 18px 18px; padding-top:calc(env(safe-area-inset-top) + 14px); height:calc(var(--vvh, 100vh) - 40px); max-height:none;
+                         display:flex; flex-direction:column; padding-bottom:12px; }
+  .modal.arriba.on .sheet { animation:bajaDe .26s cubic-bezier(.2,.8,.2,1); }
+  .modal.arriba.sale .sheet { animation:subeA .16s ease-in forwards; }
+  .modal.arriba #res { flex:1; overflow:auto; -webkit-overflow-scrolling:touch; margin-top:6px; }
+  @keyframes aparece { from { opacity:0; } }
+  @keyframes desaparece { to { opacity:0; } }
+  @keyframes sube { from { transform:translateY(100%); } }
+  @keyframes baja { to { transform:translateY(100%); } }
+  @keyframes bajaDe { from { transform:translateY(-100%); } }
+  @keyframes subeA { to { transform:translateY(-100%); } }
+  /* ---------- animaciones suaves ---------- */
+  main.entra { animation:entra .22s ease-out; }
+  @keyframes entra { from { opacity:0; transform:translateY(8px); } }
+  .toast.ver { animation:pop .22s cubic-bezier(.2,.9,.3,1.3); }
+  @keyframes pop { from { opacity:0; transform:translate(-50%, 10px) scale(.96); } }
+  .card.nueva { animation:entra .25s ease-out; }
+  button { transition:transform .08s ease, background-color .15s ease, opacity .15s ease; }
+  button:active { transform:scale(.97); }
+  #timer { transition:transform .25s cubic-bezier(.2,.8,.2,1), opacity .2s; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
   .sheet { background:var(--card); width:100%; max-height:88vh; overflow:auto; border-radius:18px 18px 0 0;
            padding:18px max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
   .sheet h3 { margin:0 0 6px; font-size:19px; }
@@ -118,7 +144,7 @@
   @media (prefers-color-scheme: dark) { .set.pr { background:#3a3010; color:#ffd166; } }
   .aviso { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 0; border-top:1px solid var(--line); }
   .aviso:first-of-type { border-top:0; }
-  .dias { font-weight:700; color:var(--warn); }
+  .dias { font-weight:700; color:var(--warn); white-space:nowrap; margin-left:8px; }
   .stat { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0; }
   .stat div { background:var(--bg); border-radius:12px; padding:10px; }
   .stat b { display:block; font-size:20px; }
@@ -303,7 +329,7 @@ function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function n2(x) { return x == null || x === '' ? '' : String(Math.round(x * 100) / 100).replace('.', ','); }
 function dm(iso) { return iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : ''; }
-function toast(t, tipo) { var e = $('toast'); e.textContent = t; e.className = 'toast ' + (tipo || ''); e.style.display = 'block'; clearTimeout(e._t); e._t = setTimeout(function () { e.style.display = 'none'; }, tipo === 'err' ? 3500 : 1800); }
+function toast(t, tipo) { var e = $('toast'); e.textContent = t; e.className = 'toast ' + (tipo || ''); e.style.display = 'block'; void e.offsetWidth; e.className += ' ver'; clearTimeout(e._t); e._t = setTimeout(function () { e.style.display = 'none'; }, tipo === 'err' ? 3500 : 1800); }
 function ej(id) { return (E && E.ejercicios.filter(function (x) { return x.id === id; })[0]) || { id: id, nombre: id, tipoCarga: 'total', equipo: '' }; }
 function vibrar(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
 
@@ -440,6 +466,7 @@ function pintarCabecera() {
   el.innerHTML = n ? '<span class="pill pend">' + (enviando ? 'Guardando… ' : '') + n + ' sin enviar</span>' : (enviando ? '<span class="pill sync">Guardando…</span>' : '');
 }
 function ir(v) {
+  var a = $('app'); a.classList.remove('entra'); void a.offsetWidth; a.classList.add('entra');
   S.vista = v;
   ['hoy', 'prog', 'hist'].forEach(function (k) { $({ hoy: 'nHoy', prog: 'nProg', hist: 'nHist' }[k]).className = k === v ? 'on' : ''; });
   window.scrollTo(0, 0); pintar();
@@ -688,8 +715,23 @@ function descartar() {
 }
 
 // ============================================================ hojas modales y confirmaciones
-function abrirHoja(html, fija) { $('sheet').innerHTML = html; var m = $('modal'); m.className = 'modal on'; if (fija) m.dataset.fijo = '1'; else delete m.dataset.fijo; }
-function cerrar() { var m = $('modal'); m.className = 'modal'; delete m.dataset.fijo; }
+var tCerrar = null;
+function abrirHoja(html, fija, arriba) {
+  clearTimeout(tCerrar); $('sheet').innerHTML = html; var m = $('modal');
+  m.className = 'modal on' + (arriba ? ' arriba' : ''); if (fija) m.dataset.fijo = '1'; else delete m.dataset.fijo;
+}
+function cerrar() {
+  var m = $('modal'); delete m.dataset.fijo;
+  if (m.className.indexOf('on') < 0) return;
+  m.className += ' sale'; clearTimeout(tCerrar);
+  tCerrar = setTimeout(function () { m.className = 'modal'; }, 160);
+}
+// iOS: con el teclado abierto la zona visible encoge; el modal se ajusta a ella para que nada quede debajo del teclado
+(function () {
+  var vv = window.visualViewport; if (!vv) return;
+  var aj = function () { var m = $('modal'); if (!m) return; document.documentElement.style.setProperty('--vvh', vv.height + 'px'); m.style.top = vv.offsetTop + 'px'; };
+  vv.addEventListener('resize', aj); vv.addEventListener('scroll', aj); aj();
+})();
 var _ok = null;
 function confirmar(titulo, texto, okTxt, peligro, onOk) {
   _ok = onOk;
@@ -702,7 +744,7 @@ var BUSCAR = { modo: 'anadir', obj: null };
 function abrirBuscar(modo, obj) {
   BUSCAR = { modo: modo || 'anadir', obj: obj || null };
   abrirHoja('<h3>' + (BUSCAR.modo === 'sustituir' ? 'Sustituir ' + esc(ej(obj).nombre) + ' por…' : 'Añadir ejercicio') + '</h3><input type="search" id="q" placeholder="Buscar ejercicio…" oninput="listaBuscar()"><div id="res"></div>' +
-    '<div class="pair"><button onclick="cerrar()">Cancelar</button><button class="prim" onclick="formNuevo()">+ Crear nuevo</button></div>');
+    '<div class="pair"><button onclick="cerrar()">Cancelar</button><button class="prim" onclick="formNuevo()">+ Crear nuevo</button></div>', false, true);
   listaBuscar();
 }
 function listaBuscar() {
@@ -777,7 +819,7 @@ function pintarProgreso() {
   S.progEj = sel;
   var opts = E.ejercicios.filter(function (e) { return e.ultima; }).sort(function (a, b) { return (b.activo - a.activo) || a.nombre.localeCompare(b.nombre); });
   $('app').innerHTML = '<div id="estanc"></div><div class="card"><select onchange="S.progEj=this.value;pintar()">' + opts.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === sel ? ' selected' : '') + '>' + esc(e.nombre) + '</option>'; }).join('') + '</select>' +
-    '<div id="kpis" class="row" style="justify-content:space-between;margin:14px 2px"><span class="mute">Cargando…</span></div><div id="estEj"></div><canvas id="cv" height="260"></canvas><div class="mute" style="margin-top:8px">Fuerza estimada (Epley) y peso de la serie más pesada por sesión.</div></div>';
+    '<div id="kpis" class="row" style="justify-content:space-between;margin:14px 2px"><span class="mute">Cargando…</span></div><div id="estEj"></div><canvas id="cv" height="260"></canvas><div class="mute" style="margin-top:8px">Línea continua: peso más alto que levantaste en cada sesión. Discontinua: fuerza estimada (e1RM, fórmula de Epley).</div></div>';
   // estancados: caché del día y refresco en segundo plano
   var ce = lsGet('gym_estanc_v1', null);
   if (ce) pintarEstancados(ce.lista);
@@ -808,18 +850,22 @@ function dibujarProgreso(r) {
   var p = r.puntos.filter(function (x) { return x.e1rm || x.top; });
   if (!p.length) { $('kpis').innerHTML = '<span class="mute">Sin datos</span>'; $('estEj').innerHTML = ''; return; }
   var best = Math.max.apply(null, p.map(function (x) { return x.e1rm || 0; })), last = p[p.length - 1];
-  $('kpis').innerHTML = kpi('Mejor e1RM', n2(best)) + kpi('Último', n2(last.e1rm)) + kpi('Sesiones', p.length);
+  var topMax = Math.max.apply(null, p.map(function (x) { return x.top || 0; }));
+  $('kpis').innerHTML = kpi('Peso máx.', n2(topMax) + '<small> kg</small>') + kpi('Último', n2(last.top) + '<small> kg</small>') +
+    kpi('e1RM máx.', n2(best)) + kpi('Sesiones', p.length);
   var es = estancamiento(p.filter(function (x) { return x.e1rm; }));
   $('estEj').innerHTML = es ? '<div class="banner" style="background:var(--warn2);color:var(--warn)">⚠ ' + es.sesiones + ' sesiones sin superar tu mejor marca (' + n2(es.mejor) + ' kg el ' + dm(es.fecha) + '/' + es.fecha.slice(2, 4) + ').</div>' : '';
   if (chart) chart.destroy();
   if (typeof Chart === 'undefined') return;
   var css = getComputedStyle(document.documentElement);
   chart = new Chart($('cv'), { type: 'line', data: { labels: p.map(function (x) { return dm(x.fecha) + '/' + x.fecha.slice(2, 4); }),
-    datasets: [{ label: 'e1RM (kg)', data: p.map(function (x) { return x.e1rm; }), borderColor: css.getPropertyValue('--acc').trim(), pointRadius: 2, tension: .2, spanGaps: true },
-               { label: 'Peso top (kg)', data: p.map(function (x) { return x.top; }), borderColor: '#e07b39', borderDash: [4, 4], pointRadius: 0, tension: .2, spanGaps: true }] },
-    options: { animation: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { ticks: { maxTicksLimit: 6 } } } } });
+    datasets: [{ label: 'Peso levantado (kg)', data: p.map(function (x) { return x.top; }), borderColor: css.getPropertyValue('--acc').trim(), backgroundColor: css.getPropertyValue('--acc').trim(), pointRadius: 2.5, borderWidth: 2.5, tension: .2, spanGaps: true },
+               { label: 'e1RM estimado (kg)', data: p.map(function (x) { return x.e1rm; }), borderColor: '#e07b39', backgroundColor: '#e07b39', borderDash: [4, 4], pointRadius: 0, borderWidth: 1.5, tension: .2, spanGaps: true }] },
+    options: { animation: { duration: 350 }, interaction: { mode: 'index', intersect: false },
+               plugins: { legend: { position: 'bottom' }, tooltip: { callbacks: { label: function (c) { return ' ' + c.dataset.label.replace(' (kg)', '') + ': ' + n2(c.parsed.y) + ' kg'; } } } },
+               scales: { x: { ticks: { maxTicksLimit: 6 } } } } });
 }
-function kpi(l, v) { return '<div><div class="mute">' + l + '</div><div style="font-size:22px;font-weight:700">' + v + '</div></div>'; }
+function kpi(l, v) { return '<div><div class="mute" style="font-size:13px">' + l + '</div><div style="font-size:20px;font-weight:700;white-space:nowrap">' + v + '</div></div>'; }
 
 // ============================================================ historial (se pinta al instante desde lo guardado y se refresca detrás)
 function sesionesHistorial() {
@@ -875,7 +921,7 @@ function borrarHist(id) {
 }
 
 // ============================================================ ajustes
-var VERSION_APP = 'v4';
+var VERSION_APP = 'v4.1';
 function pintarAjustes() {
   cabecera('Ajustes', '<button class="hbtn l" onclick="ir(\'hoy\')">' + ICON_ATRAS + 'Inicio</button>');
   $('app').innerHTML = '<div class="card"><h3 style="margin:0 0 4px">Peso corporal</h3>' +
