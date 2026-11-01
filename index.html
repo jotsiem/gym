@@ -162,8 +162,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <script>/**
  * Motor de predicción (funciones puras, sin dependencias de Google).
- * Validado contra el histórico: el peso de cada serie se acierta exacto en ~78 % de los casos
- * y las reps con un error medio de ~0,4 cuando el peso coincide.
+ * Validado contra el histórico (5.153 series): peso exacto en el 76,5 % y peso exacto con ±1 rep en el 64,7 %.
  *
  * Una "sesión" de un ejercicio es: { fecha: 'yyyy-mm-dd', sets: [{ serie, peso, reps }] }
  * con solo las series efectivas (1er tramo, sin calentamiento), ordenadas por serie.
@@ -190,8 +189,8 @@ function sugerirSerie(historial, hoy, k, cfg) {
     var d = caidaTipica(historial);
     return { peso: prevHoy.peso, reps: limitar(prevHoy.reps + d, 1, repsMax), motivo: 'Serie extra: caída típica de ' + d + ' rep' };
   }
-  var peso = (Lprev && esNum(prevHoy.peso) && esNum(Lk.peso) && esNum(Lprev.peso))
-      ? redondear(prevHoy.peso + (Lk.peso - Lprev.peso)) : Lk.peso;
+  // Series 2+: mismo peso que la serie anterior de hoy (acierta el 76,5 % frente al 72,5 % de copiar la última sesión).
+  var peso = esNum(prevHoy.peso) ? prevHoy.peso : Lk.peso;
   var reps = Lk.reps;
   if (Lprev && prevHoy.peso === Lprev.peso && esNum(prevHoy.reps) && esNum(Lprev.reps)) {
     reps = Lk.reps + (prevHoy.reps - Lprev.reps);   // hoy vas mejor/peor que la última vez
@@ -215,10 +214,22 @@ function sugerirProgresion(historial, cfg) {
   return { peso: W2, reps: r, motivo: 'Llegaste a ' + repsMax + ' en todas las series con ' + fmt(W) + ' kg' };
 }
 
+/**
+ * Ajuste de reps por el descanso actual frente a tu descanso típico, con el modelo aprendido en el servidor
+ * (modeloDescanso_). Devuelve 0 mientras no haya al menos 15 muestras en los dos tramos comparados.
+ */
+function ajusteDescanso(m, seg) {
+  if (!m || !m.tipico || seg === null || seg === undefined) return 0;
+  var t = function (s) { return s < m.limites[0] ? 0 : s < m.limites[1] ? 1 : s < m.limites[2] ? 2 : 3; };
+  var a = m.tramos[t(seg)], b = m.tramos[t(m.tipico)];
+  if (!a || !b || a.n < 15 || b.n < 15) return 0;
+  return Math.max(-2, Math.min(1, Math.round(a.media - b.media)));
+}
+
 /** e1RM de Epley. */
 function e1rm(carga, reps) {
   if (!esNum(carga) || !esNum(reps) || carga <= 0 || reps > 15) return null;
-  return Math.round(carga * (1 + reps / 30) * 10) / 10;
+  return Math.round(carga * (1 + reps / 30) * 10 + 1e-9) / 10;
 }
 
 function ultimaSesion(historial) {
@@ -250,7 +261,7 @@ function fechaCorta(iso) { var p = String(iso).split('-'); return p[2] + '/' + p
 // Modo 'gas': la página la sirve Apps Script (google.script.run).
 // Modo 'api': la página está alojada fuera (GitHub Pages) y llama a la API de Apps Script con fetch.
 var MODO = (typeof google !== 'undefined' && google.script && google.script.run) ? 'gas' : 'api';
-var K_CONEX = 'gym_conexion_v1', K_COLA = 'gym_cola_v1', K_EST = 'gym_estado_v1', K_DESC = 'gym_descanso_v1', K_CERR = 'gym_cerrada_v1';
+var K_CONEX = 'gym_conexion_v1', K_COLA = 'gym_cola_v1', K_EST = 'gym_estado_v1', K_DESC = 'gym_descanso_v1', K_CERR = 'gym_cerradas_v2';   // K_CERR: ids de sesión cerradas
 
 function lsGet(k, def) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
@@ -285,7 +296,7 @@ function run(fn, args, ok, ko) {
 
 // ============================================================ estado
 var E = null;
-var S = { vista: 'hoy', rutina: null, lista: [], cur: null, form: {}, tramo: 1, variante: {}, extra: [] };
+var S = { vista: 'hoy', sesion: null, rutina: null, lista: [], cur: null, form: {}, tramo: 1, variante: {} };
 var GRUPOS = ['Pecho','Espalda','Hombro','Bíceps','Tríceps','Antebrazo','Cuádriceps','Isquios','Glúteo','Aductor','Gemelo','Abdomen'];
 
 function $(id) { return document.getElementById(id); }
@@ -303,7 +314,19 @@ function cargar(silencioso) {
   run('getEstado', [], function (e) { E = e; lsSet(K_EST, e); tomarEstado(); vaciarCola(); },
       function (err) { if (!E) $('app').innerHTML = '<div class="card">No se ha podido cargar. ' + esc(err.message) + '<button class="prim ok" onclick="cargar()">Reintentar</button></div>'; else toast('Sin conexión: usando los datos guardados', 'err'); });
 }
-function kDia() { return 'gym_dia_' + (E ? E.hoy : hoyLocal()); }
+function kDia() { return 'gym_dia_' + (S.sesion || 'S' + (E ? E.hoy : hoyLocal())); }
+// ---- varias sesiones al día: S2026-11-01, S2026-11-01-2, …
+function cerradas() { var c = lsGet(K_CERR, []); return Array.isArray(c) ? c.slice(-30) : []; }
+function sesionesConSeries() { var ids = []; E.hoySets.forEach(function (x) { if (x.sesion && ids.indexOf(x.sesion) < 0) ids.push(x.sesion); }); return ids; }
+function sesionAbierta() { var ids = sesionesConSeries(), c = cerradas(); for (var i = ids.length - 1; i >= 0; i--) if (c.indexOf(ids[i]) < 0) return ids[i]; return null; }
+function nuevaSesionId() {
+  var base = 'S' + E.hoy, usados = sesionesConSeries().concat((E.sesionesHoy || []).map(function (s) { return s.id; })).concat(cerradas());
+  if (usados.indexOf(base) < 0) return base;
+  var max = 1; usados.forEach(function (id) { var m = /-(\d+)$/.exec(id.slice(base.length)); if (id.indexOf(base) === 0 && m) max = Math.max(max, +m[1]); });
+  return base + '-' + (max + 1);
+}
+function rutinaDe(sid) { var s = (E.sesionesHoy || []).filter(function (x) { return x.id === sid; })[0]; return lsGet('gym_rutina_' + sid, (s && s.tipo) || 'Libre'); }
+function tipoDe(sid) { var s = (E.ultimasSesiones || []).filter(function (x) { return x.id === sid; })[0]; return (s && s.tipo) || lsGet('gym_rutina_' + sid, ''); }
 function dia() { return lsGet(kDia(), {}); }
 function setDia(d) { lsSet(kDia(), d); }
 function hoyLocal() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
@@ -312,11 +335,10 @@ function tomarEstado() {
   cola().forEach(function (s) {
     if (s.op === 'cerrar') return;
     if (s.fecha === E.hoy && !E.hoySets.some(function (x) { return x.clientId === s.clientId; }))
-      E.hoySets.push({ clientId: s.clientId, ej: s.ej, peso: s.peso === '' ? null : s.peso, reps: s.reps, tramo: s.tramo, tipo: s.tipo, variante: s.variante, pending: true });
+      E.hoySets.push({ clientId: s.clientId, sesion: s.sesion || 'S' + s.fecha, ej: s.ej, peso: s.peso === '' ? null : s.peso, reps: s.reps, tramo: s.tramo, tipo: s.tipo, variante: s.variante, pending: true });
   });
-  var cerrada = lsGet(K_CERR, '') === E.hoy;
-  if (!S.rutina && E.hoySets.length && !cerrada) { S.rutina = (E.sesionHoy && E.sesionHoy.tipo) || lsGet('gym_rutina_' + E.hoy, 'Libre'); montarLista(); }
-  else if (S.rutina) montarLista();
+  if (!S.rutina) { var ab = sesionAbierta(); if (ab) { S.sesion = ab; S.rutina = rutinaDe(ab); montarLista(); } }
+  else montarLista();
   pintar();
 }
 window.addEventListener('online', function () { vaciarCola(); });
@@ -330,11 +352,11 @@ function vaciarCola() {
   var c = cola(); if (!c.length || enviando) { pintarCabecera(); return; }
   enviando = true; pintarCabecera();
   var s = c[0];
-  var peticion = s.op === 'cerrar' ? call('cerrarSesion', [s.fecha, s.datos]) : call('guardarSerie', [s]);
+  var peticion = s.op === 'cerrar' ? call('cerrarSesion', [s.sesion || s.fecha, s.datos]) : call('guardarSerie', [s]);
   peticion.then(function (r) {
     enviando = false;
     var x = E && E.hoySets.filter(function (h) { return h.clientId === s.clientId; })[0];
-    if (x) { x.id = r.id; x.pending = false; x.serie = r.serie; }
+    if (x) { x.id = r.id; x.pending = false; x.serie = r.serie; if (r.sesion) x.sesion = r.sesion; }
     setCola(cola().filter(function (q) { return q.clientId !== s.clientId; }));
     if (S.vista === 'hoy') pintar(); vaciarCola();
   }, function (e) {
@@ -361,6 +383,9 @@ function tickDescanso() {
   $('tClk').textContent = mmss(s); $('tLbl').textContent = 'Descanso · ' + (d.info || '');
   $('timer').className = s >= 180 ? 'long' : (s >= 120 ? 'mid' : '');
   if (!tInt) tInt = setInterval(tickDescanso, 1000);
+  // si el ajuste por descanso cambia mientras esperas (y no has tocado los valores), se actualiza la sugerencia
+  if (E && E.modeloDescanso && S.vista === 'hoy' && S.rutina && S.cur && S.tramo === 1 && S.form.auto && efectivasHoy(S.cur).length &&
+      ajusteDescanso(E.modeloDescanso, s) !== S.form.adj) { prepararForm(); pintar(); }
 }
 
 // ============================================================ lista del día
@@ -368,13 +393,15 @@ function montarLista() {
   var d = dia();
   if (!d.lista) { d.lista = (E.rutinas[S.rutina] || []).map(function (r) { return r.ej; }); setDia(d); }
   var ids = d.lista.slice();
-  E.hoySets.forEach(function (x) { if (ids.indexOf(x.ej) < 0) ids.push(x.ej); });
-  var hechos = []; E.hoySets.forEach(function (x) { if (hechos.indexOf(x.ej) < 0) hechos.push(x.ej); });
+  var mias = setsSesion();
+  mias.forEach(function (x) { if (ids.indexOf(x.ej) < 0) ids.push(x.ej); });
+  var hechos = []; mias.forEach(function (x) { if (hechos.indexOf(x.ej) < 0) hechos.push(x.ej); });
   S.lista = hechos.concat(ids.filter(function (i) { return hechos.indexOf(i) < 0; }));
   if (!S.cur || S.lista.indexOf(S.cur) < 0) S.cur = siguientePendiente() || S.lista[0];
   prepararForm();
 }
-function setsHoy(id) { return E.hoySets.filter(function (x) { return x.ej === id; }); }
+function setsHoy(id) { return E.hoySets.filter(function (x) { return x.ej === id && x.sesion === S.sesion; }); }
+function setsSesion() { return E.hoySets.filter(function (x) { return x.sesion === S.sesion; }); }
 function efectivasHoy(id) { return setsHoy(id).filter(function (x) { return x.tramo === 1 && x.tipo !== 'calentamiento'; }); }
 function objetivo(id) {
   var h = E.historial[id], L = h && h.length ? h[h.length - 1] : null;
@@ -389,7 +416,9 @@ function prepararForm() {
   var id = S.cur; if (!id) return;
   var e = ej(id), hoy = efectivasHoy(id).map(function (x) { return { peso: x.peso, reps: x.reps }; });
   var p = sugerirSerie(E.historial[id] || [], hoy, hoy.length + 1, { repsMin: e.repsMin, repsMax: e.repsMax });
-  S.form = { peso: p.peso, reps: p.reps, motivo: p.motivo };
+  var adj = hoy.length ? ajusteDescanso(E.modeloDescanso, segDescanso()) : 0;
+  if (adj && p.reps) { p.reps = Math.max(1, p.reps + adj); p.motivo += ' · ' + (adj > 0 ? '+' : '') + adj + ' por el descanso'; }
+  S.form = { peso: p.peso, reps: p.reps, motivo: p.motivo, auto: true, adj: adj };
   S.prog = hoy.length === 0 ? sugerirProgresion(E.historial[id] || [], { repsMax: e.repsMax, incremento: E.cfg.incremento }) : null;
   S.tramo = 1;
   if (!S.variante[id]) {
@@ -418,29 +447,32 @@ function ir(v) {
 function pintar() {
   if (!E) return;
   tickDescanso();
+  if (S.vista === 'ajustes') return pintarAjustes();
   if (S.vista === 'hoy') return S.rutina ? pintarSesion() : pintarInicio();
   if (S.vista === 'prog') return pintarProgreso();
   if (S.vista === 'hist') return pintarHistorial();
 }
 
 function pintarInicio() {
-  cabecera('Entreno');
+  cabecera('Entreno', '', '<button class="hbtn r" onclick="ir(\'ajustes\')" aria-label="Ajustes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>');
   var opts = E.cfg.rotacion.concat(['Pierna', 'Libre']).filter(function (o, i, a) { return a.indexOf(o) === i; });
   var sel = S.elegida || E.siguiente;
-  var hechas = E.hoySets.filter(function (x) { return x.tramo === 1; }).length;
-  var cerrada = lsGet(K_CERR, '') === E.hoy;
-  var h = '';
-  if (hechas && cerrada) h += '<div class="banner ok">✓ Sesión de hoy guardada (' + hechas + ' series).</div>';
-  if (hechas && !cerrada) {
-    h += '<div class="card"><div class="mute">Sesión en curso</div><div class="hero">' + esc(lsGet('gym_rutina_' + E.hoy, (E.sesionHoy && E.sesionHoy.tipo) || 'Libre')) + '</div>' +
-         '<div class="mute">' + hechas + ' series registradas hoy</div><button class="prim ok" onclick="continuar()">Continuar</button></div>';
+  var ab = sesionAbierta(), c = cerradas(), h = '';
+  var nSeries = function (sid) { return E.hoySets.filter(function (x) { return x.sesion === sid && x.tramo === 1; }).length; };
+  sesionesConSeries().filter(function (sid) { return c.indexOf(sid) >= 0; }).forEach(function (sid) {
+    h += '<div class="banner ok">✓ ' + esc(tipoDe(sid) || 'Sesión') + ' de hoy guardada (' + nSeries(sid) + ' series).</div>';
+  });
+  var hechas = ab ? nSeries(ab) : 0, cerrada = !ab;
+  if (ab) {
+    h += '<div class="card"><div class="mute">Sesión en curso</div><div class="hero">' + esc(rutinaDe(ab)) + '</div>' +
+         '<div class="mute">' + hechas + ' series registradas</div><button class="prim ok" onclick="continuar()">Continuar</button></div>';
   }
-  var ab = gruposAbandonados();
-  if (ab.length) {
-    h += '<div class="card"><div class="mute" style="margin-bottom:4px">Hace tiempo que no entrenas</div>' + ab.map(function (g) {
+  var gab = gruposAbandonados();
+  if (gab.length) {
+    h += '<div class="card"><div class="mute" style="margin-bottom:4px">Hace tiempo que no entrenas</div>' + gab.map(function (g) {
       return '<div class="aviso"><span>' + esc(g.grupo) + '</span><span class="dias">' + (g.dias === null ? 'nunca' : g.dias + ' días') + '</span></div>';
     }).join('') +
-    (ab.some(function (g) { return g.grupo === 'Pierna'; }) && sel !== 'Pierna' && E.rutinas.Pierna ? '<button style="width:100%;margin-top:8px" onclick="S.elegida=\'Pierna\';pintar()">Hoy toca pierna</button>' : '') + '</div>';
+    (gab.some(function (g) { return g.grupo === 'Pierna'; }) && sel !== 'Pierna' && E.rutinas.Pierna ? '<button style="width:100%;margin-top:8px" onclick="S.elegida=\'Pierna\';pintar()">Hoy toca pierna</button>' : '') + '</div>';
   }
   var last = E.ultimasSesiones.filter(function (s) { return s.tipo && s.tipo !== 'Descartada'; }).slice(-3).reverse()
     .map(function (s) { return esc(s.tipo) + ' ' + dm(s.fecha); }).join(' · ');
@@ -525,19 +557,20 @@ function panel(e) {
 }
 function control(k, v, lbl, step) {
   return '<div class="ctrl"><button class="step" onclick="mover(\'' + k + '\',' + (-step) + ')" aria-label="menos">−</button>' +
-    '<div class="val"><input inputmode="decimal" value="' + n2(v) + '" onchange="S.form.' + k + '=parseFloat(this.value.replace(\',\',\'.\'))"><small>' + esc(lbl) + '</small></div>' +
+    '<div class="val"><input inputmode="decimal" value="' + n2(v) + '" onchange="S.form.' + k + '=parseFloat(this.value.replace(\',\',\'.\'));S.form.auto=false"><small>' + esc(lbl) + '</small></div>' +
     '<button class="step" onclick="mover(\'' + k + '\',' + step + ')" aria-label="más">+</button></div>';
 }
-function mover(k, d) { var v = Number(S.form[k]) || 0; S.form[k] = Math.max(0, Math.round((v + d) * 100) / 100); pintar(); }
+function mover(k, d) { var v = Number(S.form[k]) || 0; S.form[k] = Math.max(0, Math.round((v + d) * 100) / 100); S.form.auto = false; pintar(); }
 
 // ============================================================ acciones de la sesión
 function empezar() {
-  S.rutina = S.elegida || E.siguiente; S.cur = null;
-  var d = dia(); setDia({ lista: null, inicio: null, descansos: d.descansos || [], recs: d.recs || [] });
-  lsSet('gym_rutina_' + E.hoy, S.rutina); lsSet(K_CERR, '');
+  var ab = sesionAbierta(); if (ab) { var c = cerradas(); c.push(ab); lsSet(K_CERR, c); }   // empezar otra cierra la que estaba en curso
+  S.sesion = nuevaSesionId(); S.rutina = S.elegida || E.siguiente; S.cur = null;
+  setDia({ lista: null, inicio: null, descansos: [], recs: [] });
+  lsSet('gym_rutina_' + S.sesion, S.rutina);
   montarLista(); pintar(); window.scrollTo(0, 0);
 }
-function continuar() { S.rutina = lsGet('gym_rutina_' + E.hoy, (E.sesionHoy && E.sesionHoy.tipo) || 'Libre'); montarLista(); pintar(); verActual(); }
+function continuar() { S.sesion = sesionAbierta(); S.rutina = rutinaDe(S.sesion); montarLista(); pintar(); verActual(); }
 function alInicio() { S.rutina = null; pintar(); window.scrollTo(0, 0); }
 function elegir(id) { S.cur = id; prepararForm(); pintar(); verActual(); }
 function verActual() { setTimeout(function () { var c = document.querySelector('.ex.cur'); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 30); }
@@ -548,13 +581,13 @@ function guardar() {
   if (!S.form.reps || pesoMal) { toast('Falta ' + (S.form.reps ? 'el peso' : 'las reps'), 'err'); return; }
   var prevTramo1 = efectivasHoy(S.cur).slice(-1)[0];
   var desc = segDescanso();
-  var notas = (S.tramo === 1 && desc !== null && desc < 900 && efectivasHoy(S.cur).length + E.hoySets.length > 0) ? 'descanso ' + mmss(desc) : '';
-  var s = { clientId: 'c' + Date.now() + Math.random().toString(36).slice(2, 7), fecha: E.hoy, ej: S.cur, variante: S.variante[S.cur] || '',
+  var notas = (S.tramo === 1 && desc !== null && desc < 900 && setsSesion().length > 0) ? 'descanso ' + mmss(desc) : '';
+  var s = { clientId: 'c' + Date.now() + Math.random().toString(36).slice(2, 7), sesion: S.sesion, fecha: E.hoy, ej: S.cur, variante: S.variante[S.cur] || '',
             peso: sinPeso ? '' : S.form.peso, reps: S.form.reps, tramo: S.tramo, notas: notas,
             tipo: S.tramo > 1 ? (prevTramo1 && prevTramo1.peso === S.form.peso ? 'rest-pause' : 'drop') : 'normal', rutina: S.rutina };
   var nSerie = S.tramo > 1 && prevTramo1 ? (prevTramo1.serie || efectivasHoy(s.ej).length) : efectivasHoy(s.ej).length + 1;
   var rec = S.tramo === 1 && !sinPeso ? esRecord(e, S.form.peso, S.form.reps) : null;
-  E.hoySets.push({ clientId: s.clientId, ej: s.ej, peso: s.peso === '' ? null : s.peso, reps: s.reps, tramo: s.tramo, tipo: s.tipo,
+  E.hoySets.push({ clientId: s.clientId, sesion: S.sesion, ej: s.ej, peso: s.peso === '' ? null : s.peso, reps: s.reps, tramo: s.tramo, tipo: s.tipo,
                    variante: s.variante, pending: true, serie: nSerie, pr: !!rec });
   lsSet(K_EST, E);
   var d = dia();
@@ -596,7 +629,7 @@ function deshacer() {
   });
 }
 function terminar() {
-  var series = E.hoySets.filter(function (x) { return x.tramo === 1; });
+  var series = setsSesion().filter(function (x) { return x.tramo === 1; });
   if (!series.length) {
     return confirmar('No hay series registradas', 'La sesión está vacía. ¿Volver al inicio?', 'Volver', false, function () { S.rutina = null; pararDescanso(); pintar(); });
   }
@@ -604,8 +637,8 @@ function terminar() {
   confirmar('¿Terminar la sesión?', series.length + ' series · ' + nEj + ' ejercicios', 'Terminar', false, function () {
     pararDescanso();
     var r = resumenSesion(), recs = recordsHoy();
-    lsSet(K_CERR, E.hoy);
-    setCola(cola().concat([{ op: 'cerrar', clientId: 'z' + Date.now(), fecha: E.hoy, datos: { duracionMin: r.duracion, descansoMedio: r.descanso } }])); vaciarCola();
+    var c = cerradas(); c.push(S.sesion); lsSet(K_CERR, c);
+    setCola(cola().concat([{ op: 'cerrar', clientId: 'z' + Date.now(), sesion: S.sesion, fecha: E.hoy, datos: { duracionMin: r.duracion, descansoMedio: r.descanso } }])); vaciarCola();
     var pend = cola().filter(function (c) { return c.op !== 'cerrar'; }).length;
     var comp = r.prev ? Math.round((r.volumen / r.prev.volumen - 1) * 100) : null;
     abrirHoja('<h3>Sesión guardada ✓</h3><p class="mute" style="margin-top:0">' + esc(S.rutina) + ' · ' + series.length + ' series · ' + nEj + ' ejercicios</p>' +
@@ -616,7 +649,7 @@ function terminar() {
       (r.prev ? '<span class="mute">vs ' + esc(r.prev.tipo) + ' del ' + dm(r.prev.fecha) + ' (' + Math.round(r.prev.volumen).toLocaleString('es-ES') + ' kg)</span>' : '') + '</div></div>' +
       (pend ? '<div class="banner" style="background:var(--warn2);color:var(--warn)">' + pend + ' series pendientes de enviar. Se enviarán solas al recuperar la conexión.</div>' : '') +
       (recs.length ? '<p><b>🏆 Récords de fuerza estimada</b></p><ul style="padding-left:20px;margin:0">' + recs.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p class="mute">Sin récords nuevos hoy.</p>') +
-      '<button class="prim ok" onclick="cerrar();S.rutina=null;ir(\'hoy\');cargar(true)">Volver al inicio</button>', true);
+      '<button class="prim ok" onclick="cerrar();S.rutina=null;S.sesion=null;ir(\'hoy\');cargar(true)">Volver al inicio</button>', true);
   });
 }
 function cargaEf(e, p) { return e.tipoCarga === 'lastre' ? E.cfg.pesoCorporal + (p || 0) : e.tipoCarga === 'asistencia' ? E.cfg.pesoCorporal - (p || 0) : p; }
@@ -624,7 +657,7 @@ function cargaEf(e, p) { return e.tipoCarga === 'lastre' ? E.cfg.pesoCorporal + 
 function recordsHoy() {
   var por = {};
   (dia().recs || []).forEach(function (r) {
-    if (!E.hoySets.some(function (x) { return x.ej === r.ej && x.pr; })) return;   // la serie se borró
+    if (!setsHoy(r.ej).some(function (x) { return x.pr; })) return;   // la serie se borró
     var p = por[r.ej]; if (!p) por[r.ej] = { v: r.v, antes: r.antes }; else { p.v = Math.max(p.v, r.v); p.antes = Math.min(p.antes, r.antes); }
   });
   return Object.keys(por).map(function (id) { return ej(id).nombre + ': ' + n2(por[id].v) + ' kg (antes ' + n2(por[id].antes) + ')'; });
@@ -632,24 +665,25 @@ function recordsHoy() {
 /** Duración (min), descanso medio (s), volumen (kg) y la última sesión del mismo tipo. */
 function resumenSesion() {
   var d = dia(), vol = 0;
-  E.hoySets.forEach(function (x) {
+  setsSesion().forEach(function (x) {
     var e = ej(x.ej); if (x.tipo === 'calentamiento' || e.tipoCarga === 'reps' || e.tipoCarga === 'segs') return;
     var c = cargaEf(e, x.peso); if (c && x.reps) vol += c * x.reps;
   });
   var dur = d.inicio ? Math.round((Date.now() - d.inicio) / 60000) : null; if (dur !== null && (dur < 1 || dur > 240)) dur = null;
   var ds = (d.descansos || []).filter(function (s) { return s >= 20 && s <= 600; });
   var desc = ds.length ? Math.round(ds.reduce(function (a, b) { return a + b; }, 0) / ds.length) : null;
-  var prev = E.ultimasSesiones.filter(function (s) { return s.tipo === S.rutina && s.fecha < E.hoy && s.volumen > 0; }).pop() || null;
+  var prev = E.ultimasSesiones.filter(function (s) { return s.tipo === S.rutina && s.id !== S.sesion && s.volumen > 0; }).pop() || null;
   return { duracion: dur, descanso: desc, volumen: vol, prev: prev };
 }
 function descartar() {
-  var n = E.hoySets.length;
-  confirmar('¿Descartar la sesión de hoy?', n ? 'Se borrarán las ' + n + ' series registradas hoy. No se puede deshacer desde la app.' : 'No hay series registradas.', 'Descartar', true, function () {
-    setCola(cola().filter(function (s) { return s.fecha !== E.hoy; }));
-    var hayEnServidor = E.hoySets.some(function (x) { return !x.pending; });
-    E.hoySets = []; S.rutina = null; setDia({}); pararDescanso(); lsSet(K_EST, E); lsSet(K_CERR, '');
+  var mias = setsSesion(), n = mias.length, sid = S.sesion;
+  confirmar('¿Descartar esta sesión?', n ? 'Se borrarán las ' + n + ' series de esta sesión. No se puede deshacer desde la app.' : 'No hay series registradas.', 'Descartar', true, function () {
+    setCola(cola().filter(function (s) { return (s.sesion || 'S' + s.fecha) !== sid; }));
+    var hayEnServidor = mias.some(function (x) { return !x.pending; });
+    E.hoySets = E.hoySets.filter(function (x) { return x.sesion !== sid; }); setDia({});
+    S.rutina = null; S.sesion = null; pararDescanso(); lsSet(K_EST, E);
     pintar(); toast('Sesión descartada');
-    if (hayEnServidor) run('descartarSesion', [E.hoy], function () {});
+    if (hayEnServidor) run('descartarSesion', [sid], function () {});
   });
 }
 
@@ -681,7 +715,7 @@ function listaBuscar() {
 }
 function elegidoBuscar(id) { if (BUSCAR.modo === 'sustituir') sustituir(BUSCAR.obj, id); else anadir(id); }
 function anadir(id) {
-  if (!S.rutina) { S.rutina = 'Libre'; lsSet('gym_rutina_' + E.hoy, 'Libre'); lsSet(K_CERR, ''); setDia({ lista: [] }); }
+  if (!S.rutina) { S.sesion = nuevaSesionId(); S.rutina = 'Libre'; lsSet('gym_rutina_' + S.sesion, 'Libre'); setDia({ lista: [] }); }
   var d = dia(); d.lista = (d.lista || []).concat([id]); setDia(d);
   montarLista(); S.cur = id; prepararForm(); cerrar(); pintar(); verActual(); toast('Añadido: ' + ej(id).nombre, 'ok');
 }
@@ -790,7 +824,7 @@ function kpi(l, v) { return '<div><div class="mute">' + l + '</div><div style="f
 // ============================================================ historial (se pinta al instante desde lo guardado y se refresca detrás)
 function sesionesHistorial() {
   var l = (E.historialSesiones || []).filter(function (s) { return s.fecha !== E.hoy; });
-  if (E.hoySets.length) l.unshift({ sesion: 'S' + E.hoy, fecha: E.hoy, sets: E.hoySets });
+  sesionesConSeries().forEach(function (sid) { l.unshift({ sesion: sid, fecha: E.hoy, sets: E.hoySets.filter(function (x) { return x.sesion === sid; }) }); });
   return l.slice(0, 10);
 }
 function pintarHistorial() {
@@ -804,7 +838,8 @@ function pintarHistorial() {
 function dibujarHistorial(ses) {
   $('app').innerHTML = '<p class="mute" style="margin:8px 4px">Toca una serie para corregirla o borrarla.</p>' + (ses.map(function (s) {
     var por = {}; s.sets.forEach(function (x) { (por[x.ej] = por[x.ej] || []).push(x); });
-    return '<div class="card"><b>' + s.fecha.split('-').reverse().join('/') + '</b>' + Object.keys(por).map(function (id) {
+    var t = tipoDe(s.sesion);
+    return '<div class="card"><b>' + s.fecha.split('-').reverse().join('/') + '</b>' + (t && t !== 'Descartada' ? ' <span class="mute">· ' + esc(t) + '</span>' : '') + Object.keys(por).map(function (id) {
       var e = ej(id);
       return '<div style="margin-top:8px">' + esc(e.nombre) + '<div class="sets">' + por[id].map(function (x) {
         return x.id ? '<span class="set" onclick="editar(\'' + x.id + '\',\'' + id + '\',' + (x.peso == null ? 'null' : x.peso) + ',' + x.reps + ')">' + etiquetaSerie(e, x) + '</span>'
@@ -836,6 +871,28 @@ function cambiarLocal(id, fn) {
 function borrarHist(id) {
   confirmar('¿Borrar esta serie?', 'Se marcará como borrada en la hoja.', 'Borrar', true, function () {
     run('borrarSerie', [id], function () { cambiarLocal(id, null); toast('Serie borrada'); pintar(); });
+  });
+}
+
+// ============================================================ ajustes
+var VERSION_APP = 'v4';
+function pintarAjustes() {
+  cabecera('Ajustes', '<button class="hbtn l" onclick="ir(\'hoy\')">' + ICON_ATRAS + 'Inicio</button>');
+  $('app').innerHTML = '<div class="card"><h3 style="margin:0 0 4px">Peso corporal</h3>' +
+    '<p class="mute" style="margin:0 0 8px">Se usa en los ejercicios con lastre o asistidos (fondos, dominadas). Las series ya guardadas no cambian.</p>' +
+    '<div class="row"><input type="text" id="pc" inputmode="decimal" value="' + n2(E.cfg.pesoCorporal) + '" style="flex:1"><span class="mute">kg</span></div>' +
+    '<button class="prim ok" onclick="guardarPeso()">Guardar peso</button></div>' +
+    '<div class="card"><h3 style="margin:0 0 4px">Conexión</h3><p class="mute" style="margin:0">' + (MODO === 'gas' ? 'App servida por Apps Script.' : 'Conectada a tu hoja Gym v2.') + ' Versión ' + VERSION_APP + '.</p>' +
+    (MODO === 'api' ? '<button class="ghost danger lnk" style="margin-top:10px" onclick="olvidarClave()">Olvidar la clave en este móvil</button>' : '') + '</div>';
+}
+function guardarPeso() {
+  var kg = parseFloat(($('pc').value || '').replace(',', '.'));
+  if (!(kg >= 30 && kg <= 250)) { toast('Peso no válido', 'err'); return; }
+  run('guardarPesoCorporal', [kg], function () { E.cfg.pesoCorporal = kg; lsSet(K_EST, E); toast('✓ Peso corporal: ' + n2(kg) + ' kg', 'ok'); });
+}
+function olvidarClave() {
+  confirmar('¿Olvidar la clave?', 'Tendrás que volver a escribirla para usar la app en este móvil.', 'Olvidar', true, function () {
+    var c = conexion(); delete c.key; lsSet(K_CONEX, c); lsSet(K_EST, null); E = null; pantallaConexion('');
   });
 }
 
